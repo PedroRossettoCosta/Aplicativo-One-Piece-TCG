@@ -2,7 +2,8 @@
 // Frames never leave the phone. tesseract.js is loaded only when the scanner opens.
 import { useEffect, useRef, useState } from 'react';
 import type { Worker } from 'tesseract.js';
-import { findCode, similarCodes, type Catalog } from './cards';
+import { findCode, similarCodes, setOf, type Catalog } from './cards';
+import { fingerprintsInFrame, bestDistance, decode } from './fingerprint';
 import { CloseIcon, PlusIcon } from './icons';
 
 type Props = {
@@ -19,6 +20,7 @@ type Status = 'starting' | 'scanning' | 'found' | 'denied' | 'unsupported';
 export default function Scanner({ catalog, owned, renderArt, onAdd, onType, onClose }: Props) {
   const video = useRef<HTMLVideoElement>(null);
   const zone = useRef<HTMLDivElement>(null);
+  const frame = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<Status>('starting');
   const [found, setFound] = useState<string | null>(null);
   const [added, setAdded] = useState(0);
@@ -70,11 +72,14 @@ export default function Scanner({ catalog, owned, renderArt, onAdd, onType, onCl
         const read = findCode(data.text, (c) => c in catalogRef.current);
         recent = [...recent, read].slice(-3);
         const code = read && recent.filter((r) => r === read).length >= 2 ? read : null;
-        if (code && !paused.current) {
+        if (code && !paused.current && frame.current) {
           recent = [];
           paused.current = true;
           navigator.vibrate?.(60);
-          setFound(code);
+          // OCR often gets one digit wrong (006 vs 096): let the artwork decide between look-alike codes
+          const best = await pickByArt(v, frame.current, code, (c) => c in catalogRef.current).catch(() => code);
+          if (stopped) break;
+          setFound(best);
           setStatus('found');
           lastHit = Date.now();
         }
@@ -104,7 +109,7 @@ export default function Scanner({ catalog, owned, renderArt, onAdd, onType, onCl
     <div className="scanner" role="dialog" aria-modal="true" aria-label="Escanear carta">
       <video ref={video} className="scanner-video" playsInline muted autoPlay />
 
-      <div className="scan-frame" aria-hidden="true">
+      <div ref={frame} className="scan-frame" aria-hidden="true">
         <div ref={zone} className="code-zone" />
       </div>
 
@@ -168,19 +173,52 @@ export default function Scanner({ catalog, owned, renderArt, onAdd, onType, onCl
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Copies the on-screen code zone (plus a margin) out of the video frame, as high-contrast black on white. */
-function grabZone(v: HTMLVideoElement, zoneEl: HTMLElement, canvas: HTMLCanvasElement) {
+/** Maps an on-screen element (plus `pad` of its size on each side) to source pixels of the video. */
+function videoRect(v: HTMLVideoElement, el: HTMLElement, pad = 0) {
   const vr = v.getBoundingClientRect();
-  const zr = zoneEl.getBoundingClientRect();
+  const r = el.getBoundingClientRect();
   // the video is shown with object-fit: cover, so map screen pixels back to video pixels
   const scale = Math.max(vr.width / v.videoWidth, vr.height / v.videoHeight);
   const offX = (vr.width - v.videoWidth * scale) / 2;
   const offY = (vr.height - v.videoHeight * scale) / 2;
-  const pad = 0.25;
-  const sx = Math.max(0, (zr.left - vr.left - offX - zr.width * pad) / scale);
-  const sy = Math.max(0, (zr.top - vr.top - offY - zr.height * pad) / scale);
-  const sw = Math.min(v.videoWidth - sx, (zr.width * (1 + 2 * pad)) / scale);
-  const sh = Math.min(v.videoHeight - sy, (zr.height * (1 + 2 * pad)) / scale);
+  const sx = Math.max(0, (r.left - vr.left - offX - r.width * pad) / scale);
+  const sy = Math.max(0, (r.top - vr.top - offY - r.height * pad) / scale);
+  const sw = Math.min(v.videoWidth - sx, (r.width * (1 + 2 * pad)) / scale);
+  const sh = Math.min(v.videoHeight - sy, (r.height * (1 + 2 * pad)) / scale);
+  return { sx, sy, sw, sh };
+}
+
+const fpCache = new Map<string, Promise<Record<string, string>>>();
+const loadSetFingerprints = (set: string) => {
+  if (!fpCache.has(set)) fpCache.set(set, fetch(`/fp/${set}.json`).then((r) => (r.ok ? r.json() : {})).catch(() => ({})));
+  return fpCache.get(set)!;
+};
+
+/**
+ * Compares the card in the frame with the OCR code and its look-alikes (one or two digits off)
+ * and returns the code whose artwork matches clearly better; otherwise keeps the OCR code.
+ */
+async function pickByArt(v: HTMLVideoElement, frameEl: HTMLElement, code: string, known: (c: string) => boolean) {
+  const candidates = [code, ...similarCodes(code, known, 12)];
+  const fps = Object.assign({}, ...(await Promise.all([...new Set(candidates.map(setOf))].map(loadSetFingerprints))));
+  const { sx, sy, sw, sh } = videoRect(v, frameEl);
+  const c = document.createElement('canvas');
+  c.width = 250; c.height = Math.round((250 * sh) / sw);
+  const ctx = c.getContext('2d', { willReadFrequently: true })!;
+  ctx.drawImage(v, sx, sy, sw, sh, 0, 0, c.width, c.height);
+  const seen = fingerprintsInFrame(ctx.getImageData(0, 0, c.width, c.height).data, c.width, c.height);
+
+  const score = (k: string) => (fps[k] ? bestDistance(seen, decode(fps[k])) : Infinity);
+  const ocrScore = score(code);
+  let best = code, bestScore = ocrScore;
+  for (const k of candidates) { const s = score(k); if (s < bestScore) { best = k; bestScore = s; } }
+  // switch only when the art is clearly closer (parallel/alt-art printings can differ from the reference)
+  return best !== code && bestScore < ocrScore * 0.8 ? best : code;
+}
+
+/** Copies the on-screen code zone (plus a margin) out of the video frame, as high-contrast black on white. */
+function grabZone(v: HTMLVideoElement, zoneEl: HTMLElement, canvas: HTMLCanvasElement) {
+  const { sx, sy, sw, sh } = videoRect(v, zoneEl, 0.25);
 
   const outW = 1200; // upscale: the printed code is tiny, OCR needs ~30px tall letters
   canvas.width = outW;
