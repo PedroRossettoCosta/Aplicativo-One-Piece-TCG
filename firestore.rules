@@ -1,0 +1,16 @@
+rules_version = '2';
+
+// Paste into Firebase console → Firestore → Rules → Publish.
+// Each player has exactly one document, users/{uid} = { cards: { "OP01-120": 2, ... } },
+// and only that player can read or change it. Everything else is denied.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid} {
+      allow read, delete: if request.auth != null && request.auth.uid == uid;
+      allow create, update: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['cards'])
+        && request.resource.data.cards is map
+        && request.resource.data.cards.size() <= 5000;
+    }
+  }
+}

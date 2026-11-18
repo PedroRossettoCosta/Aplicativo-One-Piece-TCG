@@ -1,0 +1,10 @@
+node_modules
+dist
+.env.local
+*.log
+
+# impeccable runtime files (keep .impeccable/surfaces/)
+.impeccable/mocks/
+.impeccable/review/
+.impeccable/questions/
+.impeccable/hook.cache.json
