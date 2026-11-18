@@ -6,6 +6,7 @@ import {
 import {
   normalizeCode, ligaUrl, imageUrl, SHOW_IMAGES, setOf, loadCatalog, colorsPt, colorKeys, type Catalog,
 } from './cards';
+import Scanner from './Scanner';
 import { SearchIcon, ScanIcon, ShelfIcon, UserIcon, PlusIcon, MinusIcon, CloseIcon, ExternalIcon } from './icons';
 
 export default function App() {
@@ -73,6 +74,7 @@ function LoginScreen() {
 function Shell({ user }: { user: User }) {
   const [tab, setTab] = useState<'colecao' | 'conta'>('colecao');
   const [adding, setAdding] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const [cards, setCards] = useState<Collection>({});
   const [catalog, setCatalog] = useState<Catalog>({});
   const [focus, setFocus] = useState<string | null>(null);
@@ -115,13 +117,21 @@ function Shell({ user }: { user: User }) {
         <button className={tab === 'colecao' ? 'on' : ''} onClick={() => setTab('colecao')} aria-current={tab === 'colecao' ? 'page' : undefined}>
           <ShelfIcon /><span>Coleção</span>
         </button>
-        <button className="scan" onClick={() => setAdding(true)} aria-label="Adicionar carta">
+        <button className="scan" onClick={() => setScanning(true)} aria-label="Escanear carta">
           <ScanIcon />
         </button>
         <button className={tab === 'conta' ? 'on' : ''} onClick={() => setTab('conta')} aria-current={tab === 'conta' ? 'page' : undefined}>
           <UserIcon /><span>Conta</span>
         </button>
       </nav>
+
+      {scanning && (
+        <Scanner catalog={catalog} owned={cards}
+          renderArt={(code) => <CardArt code={code} info={catalog[code]} />}
+          onAdd={(code) => { change(code, 1); setTab('colecao'); setFocus(code); }}
+          onType={() => { setScanning(false); setAdding(true); }}
+          onClose={() => setScanning(false)} />
+      )}
 
       {adding && (
         <AddSheet catalog={catalog} owned={cards} onClose={() => setAdding(false)}
@@ -350,7 +360,6 @@ function AddSheet({ catalog, owned, onAdd, onClose }: {
           <button type="submit" className="btn primary" disabled={!code}><PlusIcon /> Adicionar</button>
         </form>
         {added.length > 0 && <p className="hint">Adicionadas agora: {added.join(', ')}</p>}
-        <p className="hint">O scanner pela câmera chega na próxima versão.</p>
       </section>
     </div>
   );

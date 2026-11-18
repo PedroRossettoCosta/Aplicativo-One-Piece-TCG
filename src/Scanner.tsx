@@ -1,0 +1,190 @@
+// Camera scanner: reads the printed card code (bottom-right corner) with on-device OCR.
+// Frames never leave the phone. tesseract.js is loaded only when the scanner opens.
+import { useEffect, useRef, useState } from 'react';
+import type { Worker } from 'tesseract.js';
+import { findCode, type Catalog } from './cards';
+import { CloseIcon, PlusIcon } from './icons';
+
+type Props = {
+  catalog: Catalog;
+  owned: Record<string, number>;
+  renderArt: (code: string) => React.ReactNode;
+  onAdd: (code: string) => void;
+  onType: () => void; // fall back to typing the code
+  onClose: () => void;
+};
+
+type Status = 'starting' | 'scanning' | 'found' | 'denied' | 'unsupported';
+
+export default function Scanner({ catalog, owned, renderArt, onAdd, onType, onClose }: Props) {
+  const video = useRef<HTMLVideoElement>(null);
+  const zone = useRef<HTMLDivElement>(null);
+  const [status, setStatus] = useState<Status>('starting');
+  const [found, setFound] = useState<string | null>(null);
+  const [added, setAdded] = useState(0);
+  const [slow, setSlow] = useState(false); // nothing read for a while: show tips
+  const [torch, setTorch] = useState<boolean | null>(null); // null = torch not available
+  const paused = useRef(false);
+  const catalogRef = useRef(catalog);
+  catalogRef.current = catalog;
+
+  // Camera + OCR loop
+  useEffect(() => {
+    let stream: MediaStream | undefined;
+    let worker: Worker | undefined;
+    let stopped = false;
+
+    (async () => {
+      if (!navigator.mediaDevices?.getUserMedia) return setStatus('unsupported');
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 2560 }, height: { ideal: 1440 } },
+          audio: false,
+        });
+      } catch {
+        return setStatus('denied');
+      }
+      if (stopped) return stream.getTracks().forEach((t) => t.stop());
+      const v = video.current!;
+      v.srcObject = stream;
+      await v.play().catch(() => {});
+      const track = stream.getVideoTracks()[0];
+      if ((track.getCapabilities?.() as { torch?: boolean } | undefined)?.torch) setTorch(false);
+      setStatus('scanning');
+
+      const { createWorker, PSM } = await import('tesseract.js');
+      worker = await createWorker('eng');
+      await worker.setParameters({
+        tessedit_char_whitelist: 'OPSTEBRI0123456789-',
+        tessedit_pageseg_mode: PSM.SPARSE_TEXT,
+      });
+
+      const canvas = document.createElement('canvas');
+      let lastHit = Date.now();
+      while (!stopped) {
+        if (paused.current || !v.videoWidth || !zone.current) { await wait(250); continue; }
+        grabZone(v, zone.current, canvas);
+        const { data } = await worker.recognize(canvas);
+        if (stopped) break;
+        const code = findCode(data.text, (c) => c in catalogRef.current);
+        if (code && !paused.current) {
+          paused.current = true;
+          navigator.vibrate?.(60);
+          setFound(code);
+          setStatus('found');
+          lastHit = Date.now();
+        }
+        setSlow(Date.now() - lastHit > 6000);
+      }
+    })();
+
+    return () => {
+      stopped = true;
+      stream?.getTracks().forEach((t) => t.stop());
+      worker?.terminate();
+    };
+  }, []);
+
+  const resume = () => { setFound(null); setStatus('scanning'); paused.current = false; };
+
+  const toggleTorch = async () => {
+    const track = (video.current?.srcObject as MediaStream | null)?.getVideoTracks()[0];
+    if (!track || torch === null) return;
+    await track.applyConstraints({ advanced: [{ torch: !torch } as MediaTrackConstraintSet] }).catch(() => {});
+    setTorch(!torch);
+  };
+
+  const info = found ? catalog[found] : undefined;
+
+  return (
+    <div className="scanner" role="dialog" aria-modal="true" aria-label="Escanear carta">
+      <video ref={video} className="scanner-video" playsInline muted autoPlay />
+
+      <div className="scan-frame" aria-hidden="true">
+        <div ref={zone} className="code-zone" />
+      </div>
+
+      <div className="scanner-top">
+        <button className="round-btn" onClick={onClose} aria-label="Fechar scanner"><CloseIcon /></button>
+        {added > 0 && <span className="scan-count">{added} {added === 1 ? 'adicionada' : 'adicionadas'}</span>}
+        {torch !== null && (
+          <button className={`round-btn${torch ? ' on' : ''}`} onClick={toggleTorch} aria-pressed={torch}>
+            Luz
+          </button>
+        )}
+      </div>
+
+      <div className="scanner-bottom">
+        {status === 'found' && found ? (
+          <div className="scan-result" aria-live="assertive">
+            {renderArt(found)}
+            <div className="scan-result-info">
+              <p className="tile-name">{info?.n ?? found}</p>
+              <p className="tile-meta">{found}{info && ` · ${info.r}`}</p>
+              <p className="tile-meta">{owned[found] ? `Você tem ${owned[found]}` : 'Nova na coleção'}</p>
+              <div className="scan-actions">
+                <button className="btn primary" onClick={() => { onAdd(found); setAdded((n) => n + 1); resume(); }}>
+                  <PlusIcon /> Adicionar
+                </button>
+                <button className="btn" onClick={resume}>Não é essa</button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="scan-hint" aria-live="polite">
+            {status === 'starting' && <p>Abrindo a câmera…</p>}
+            {status === 'scanning' && (
+              <>
+                <p><strong>Encaixe a carta na moldura.</strong> O código fica no canto destacado.</p>
+                {slow && <p className="hint">Dica: chegue mais perto, segure firme e evite reflexo de luz.</p>}
+              </>
+            )}
+            {status === 'denied' && (
+              <p>Sem acesso à câmera. No iPhone: Ajustes → Safari → Câmera → Permitir. Depois abra o scanner de novo.</p>
+            )}
+            {status === 'unsupported' && <p>Este navegador não permite usar a câmera aqui.</p>}
+            <button className="link" onClick={onType}>Digitar o código</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Copies the on-screen code zone (plus a margin) out of the video frame, as high-contrast black on white. */
+function grabZone(v: HTMLVideoElement, zoneEl: HTMLElement, canvas: HTMLCanvasElement) {
+  const vr = v.getBoundingClientRect();
+  const zr = zoneEl.getBoundingClientRect();
+  // the video is shown with object-fit: cover, so map screen pixels back to video pixels
+  const scale = Math.max(vr.width / v.videoWidth, vr.height / v.videoHeight);
+  const offX = (vr.width - v.videoWidth * scale) / 2;
+  const offY = (vr.height - v.videoHeight * scale) / 2;
+  const pad = 0.25;
+  const sx = Math.max(0, (zr.left - vr.left - offX - zr.width * pad) / scale);
+  const sy = Math.max(0, (zr.top - vr.top - offY - zr.height * pad) / scale);
+  const sw = Math.min(v.videoWidth - sx, (zr.width * (1 + 2 * pad)) / scale);
+  const sh = Math.min(v.videoHeight - sy, (zr.height * (1 + 2 * pad)) / scale);
+
+  const outW = 1200; // upscale: the printed code is tiny, OCR needs ~30px tall letters
+  canvas.width = outW;
+  canvas.height = Math.round((outW * sh) / sw);
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+  ctx.drawImage(v, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+
+  // grayscale + threshold at the mean; make the background white whatever the card's colours
+  const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const px = img.data;
+  let sum = 0;
+  for (let i = 0; i < px.length; i += 4) sum += (px[i] * 299 + px[i + 1] * 587 + px[i + 2] * 114) / 1000;
+  const mean = sum / (px.length / 4);
+  let dark = 0;
+  for (let i = 0; i < px.length; i += 4) {
+    const g = (px[i] * 299 + px[i + 1] * 587 + px[i + 2] * 114) / 1000 < mean ? 0 : 255;
+    if (!g) dark++;
+    px[i] = px[i + 1] = px[i + 2] = g;
+  }
+  if (dark > px.length / 8) for (let i = 0; i < px.length; i += 4) px[i] = px[i + 1] = px[i + 2] = 255 - px[i];
+  ctx.putImageData(img, 0, 0);
+}

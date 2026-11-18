@@ -249,3 +249,42 @@ h2 { font-size: 17px; font-weight: 750; letter-spacing: -0.01em; }
   .btn.primary:hover { background: var(--signal); }
   .stepper button:hover, .icon-btn:hover { background: none; }
 }
+
+/* ---------- camera scanner ---------- */
+.scanner { position: fixed; inset: 0; z-index: 30; background: #000; overflow: hidden; animation: fade 200ms var(--ease); }
+.scanner-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+/* card-shaped window; everything around it is darkened */
+.scan-frame {
+  position: absolute; left: 50%; top: 44%; transform: translate(-50%, -50%);
+  width: min(74vw, 340px, calc(56dvh * 5 / 7)); aspect-ratio: 5 / 7; border-radius: 16px;
+  box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0.55); border: 2px solid rgb(255 255 255 / 0.85);
+}
+/* the printed code sits in the bottom-right corner of every card */
+.code-zone {
+  position: absolute; right: 3%; bottom: 1.5%; width: 46%; height: 8%;
+  border: 2px solid var(--signal); border-radius: 6px; background: rgb(255 107 61 / 0.12);
+  animation: zone-pulse 1.6s var(--ease) infinite;
+}
+@keyframes zone-pulse { 50% { box-shadow: 0 0 0 6px rgb(255 107 61 / 0.25); } }
+.scanner-top {
+  position: absolute; inset: 0 0 auto; display: flex; justify-content: space-between; align-items: center;
+  padding: max(16px, env(safe-area-inset-top)) var(--pad) 0;
+}
+.round-btn {
+  min-width: 44px; height: 44px; padding: 0 14px; border-radius: 22px; display: grid; place-items: center;
+  background: rgb(14 16 20 / 0.7); color: var(--text); font-weight: 700; font-size: 14px;
+}
+.round-btn.on { background: var(--signal); color: var(--signal-ink); }
+.scan-count { padding: 8px 14px; border-radius: 20px; background: rgb(14 16 20 / 0.7); font-size: 14px; font-weight: 700; }
+.scanner-bottom { position: absolute; inset: auto 0 0; padding: 0 var(--pad) max(20px, env(safe-area-inset-bottom)); }
+.scan-hint { display: grid; gap: 6px; justify-items: center; text-align: center; padding: 14px 16px 6px; border-radius: 18px; background: rgb(14 16 20 / 0.82); }
+.scan-hint p { max-width: 36ch; }
+.scan-result {
+  display: grid; grid-template-columns: 96px 1fr; gap: 14px; padding: 14px; border-radius: 20px;
+  background: var(--ink-2); border: 1px solid var(--line); box-shadow: 0 -8px 30px rgb(0 0 0 / 0.5);
+  animation: rise 380ms var(--ease);
+}
+.scan-result .art { width: 96px; }
+.scan-result-info { display: grid; gap: 4px; align-content: start; min-width: 0; }
+.scan-actions { display: grid; grid-template-columns: 1fr; gap: 8px; margin-top: 6px; }
+.scan-actions .btn { height: 46px; }
