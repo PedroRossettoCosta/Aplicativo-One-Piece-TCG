@@ -4,7 +4,7 @@ import { initializeApp } from 'firebase/app';
 import {
   getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword,
   signInWithPopup, GoogleAuthProvider, sendPasswordResetEmail, signOut, deleteUser, type User,
-  setPersistence, browserLocalPersistence, browserSessionPersistence,
+  setPersistence, browserLocalPersistence, browserSessionPersistence, signInWithRedirect, getRedirectResult,
 } from 'firebase/auth';
 import {
   initializeFirestore, persistentLocalCache, doc, onSnapshot, setDoc, deleteDoc, increment, deleteField,
@@ -38,7 +38,20 @@ export const setRemember = (on: boolean) =>
   setPersistence(auth, on ? browserLocalPersistence : browserSessionPersistence);
 export const signUp = (email: string, password: string) => createUserWithEmailAndPassword(auth, email, password);
 export const signIn = (email: string, password: string) => signInWithEmailAndPassword(auth, email, password);
-export const signInWithGoogle = () => signInWithPopup(auth, new GoogleAuthProvider());
+/**
+ * Google login: popup first; if the browser blocks it (some iOS/Android home-screen apps), fall back to a
+ * full-page redirect. Login runs through the site's own domain (vercel.json proxies /__/auth to Firebase,
+ * and VITE_FIREBASE_AUTH_DOMAIN is the site's domain), so no third-party storage is needed on any browser.
+ */
+export const signInWithGoogle = () =>
+  signInWithPopup(auth, new GoogleAuthProvider()).catch((e) => {
+    const code = (e as { code?: string }).code;
+    if (code === 'auth/popup-blocked' || code === 'auth/operation-not-supported-in-this-environment')
+      return signInWithRedirect(auth, new GoogleAuthProvider());
+    throw e;
+  });
+/** Surfaces errors from a finished redirect login (success is picked up by onUserChange). */
+export const redirectLoginResult = () => getRedirectResult(auth);
 export const resetPassword = (email: string) => sendPasswordResetEmail(auth, email);
 export const logOut = () => signOut(auth);
 

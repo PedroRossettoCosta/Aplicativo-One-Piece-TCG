@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
-  onUserChange, signIn, signUp, signInWithGoogle, setRemember, resetPassword, logOut, deleteAccount,
+  onUserChange, signIn, signUp, signInWithGoogle, redirectLoginResult, setRemember, resetPassword, logOut, deleteAccount,
   watchCollection, changeQuantity, savePrice, type User, type Collection, type Price, type Prices,
 } from './backend';
 import {
@@ -27,6 +27,7 @@ function LoginScreen() {
   const [busy, setBusy] = useState(false);
   const [keep, setKeep] = useState(true);
   useEffect(() => { setRemember(keep); }, [keep]);
+  useEffect(() => { redirectLoginResult().catch((e) => setMessage(friendlyError(e))); }, []);
 
   const run =(action: () => Promise<unknown>, done = '') => {
     setBusy(true);
@@ -463,6 +464,7 @@ function friendlyError(e: unknown): string {
     'auth/missing-email': 'Digite seu e-mail primeiro.',
     'auth/missing-password': 'Digite sua senha.',
     'auth/popup-closed-by-user': 'Login com Google cancelado.',
+    'auth/unauthorized-domain': 'Este endereço não está autorizado no Firebase (Authentication → Settings → Authorized domains).',
     'auth/requires-recent-login': 'Por segurança, saia e entre de novo antes de apagar a conta.',
     'auth/configuration-not-found': 'Login ainda não ativado no Firebase (Authentication → Get started).',
     'auth/operation-not-allowed': 'Esse tipo de login não está ativado no Firebase.',
