@@ -16,6 +16,11 @@ type Props = {
 };
 
 type Status = 'starting' | 'scanning' | 'found' | 'denied' | 'unsupported';
+type Step =
+  | { kind: 'loading'; progress: number } // downloading/starting the text reader
+  | { kind: 'searching' }                  // reading frames, nothing yet
+  | { kind: 'confirming'; code: string }   // read once, waiting for a second matching read
+  | { kind: 'art'; code: string };         // comparing the artwork with look-alike codes
 
 export default function Scanner({ catalog, owned, renderArt, onAdd, onType, onClose }: Props) {
   const video = useRef<HTMLVideoElement>(null);
@@ -26,6 +31,7 @@ export default function Scanner({ catalog, owned, renderArt, onAdd, onType, onCl
   const [added, setAdded] = useState(0);
   const [slow, setSlow] = useState(false); // nothing read for a while: show tips
   const [torch, setTorch] = useState<boolean | null>(null); // null = torch not available
+  const [step, setStep] = useState<Step>({ kind: 'loading', progress: 0 }); // what the scanner is doing now
   const paused = useRef(false);
   const catalogRef = useRef(catalog);
   catalogRef.current = catalog;
@@ -53,9 +59,17 @@ export default function Scanner({ catalog, owned, renderArt, onAdd, onType, onCl
       const track = stream.getVideoTracks()[0];
       if ((track.getCapabilities?.() as { torch?: boolean } | undefined)?.torch) setTorch(false);
       setStatus('scanning');
+      setStep({ kind: 'loading', progress: 0 });
 
       const { createWorker, PSM } = await import('tesseract.js');
-      worker = await createWorker('eng');
+      worker = await createWorker('eng', 1, {
+        // first use downloads the text reader (a few MB); show how far along it is
+        logger: (m: { status: string; progress: number }) => {
+          if (/loading|initializ/.test(m.status)) setStep({ kind: 'loading', progress: m.progress });
+        },
+      });
+      if (stopped) return;
+      setStep({ kind: 'searching' });
       await worker.setParameters({
         tessedit_char_whitelist: 'OPSTEBRI0123456789-',
         tessedit_pageseg_mode: PSM.SPARSE_TEXT,
@@ -72,13 +86,16 @@ export default function Scanner({ catalog, owned, renderArt, onAdd, onType, onCl
         const read = findCode(data.text, (c) => c in catalogRef.current);
         recent = [...recent, read].slice(-3);
         const code = read && recent.filter((r) => r === read).length >= 2 ? read : null;
+        if (!paused.current) setStep(read && !code ? { kind: 'confirming', code: read } : { kind: 'searching' });
         if (code && !paused.current && frame.current) {
           recent = [];
           paused.current = true;
           navigator.vibrate?.(60);
+          setStep({ kind: 'art', code });
           // OCR often gets one digit wrong (006 vs 096): let the artwork decide between look-alike codes
           const best = await pickByArt(v, frame.current, code, (c) => c in catalogRef.current).catch(() => code);
           if (stopped) break;
+          setStep({ kind: 'searching' });
           setFound(best);
           setStatus('found');
           lastHit = Date.now();
@@ -110,7 +127,7 @@ export default function Scanner({ catalog, owned, renderArt, onAdd, onType, onCl
       <video ref={video} className="scanner-video" playsInline muted autoPlay />
 
       <div ref={frame} className="scan-frame" aria-hidden="true">
-        <div ref={zone} className="code-zone" />
+        <div ref={zone} className={`code-zone${step.kind === 'loading' ? '' : ' working'}`} />
       </div>
 
       <div className="scanner-top">
@@ -155,6 +172,16 @@ export default function Scanner({ catalog, owned, renderArt, onAdd, onType, onCl
             {status === 'starting' && <p>Abrindo a câmera…</p>}
             {status === 'scanning' && (
               <>
+                <p className="scan-step" role="status">
+                  <span className={`spinner${step.kind === 'art' || step.kind === 'confirming' ? ' fast' : ''}`} aria-hidden="true" />
+                  {step.kind === 'loading' && `Preparando o leitor… ${Math.round(step.progress * 100)}%`}
+                  {step.kind === 'searching' && 'Procurando o código…'}
+                  {step.kind === 'confirming' && <>Lido: <strong>{step.code}</strong> · confirmando…</>}
+                  {step.kind === 'art' && <>Conferindo a arte de <strong>{step.code}</strong>…</>}
+                </p>
+                {step.kind === 'loading' && (
+                  <div className="progress" aria-hidden="true"><i style={{ width: `${Math.round(step.progress * 100)}%` }} /></div>
+                )}
                 <p><strong>Aproxime até a carta preencher a moldura.</strong> O código deve ficar dentro da faixa laranja.</p>
                 {slow && <p className="hint">Dica: chegue mais perto, segure firme e evite reflexo de luz.</p>}
               </>
