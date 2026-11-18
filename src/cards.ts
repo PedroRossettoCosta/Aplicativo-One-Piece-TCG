@@ -29,6 +29,28 @@ export function findCode(text: string, known: (code: string) => boolean): string
   return null;
 }
 
+// Digits OCR mixes up on the tiny printed code (e.g. 098 read as 006).
+const LOOKALIKE: Record<string, string> = {
+  '0': '8693', '1': '74', '2': '73', '3': '8952', '4': '1', '5': '638', '6': '8509', '7': '12', '8': '06935', '9': '8063',
+};
+
+/** Real codes that differ from `code` by one or two look-alike digits, closest first (for "É uma destas?"). */
+export function similarCodes(code: string, known: (c: string) => boolean, max = 8): string[] {
+  const dash = code.indexOf('-');
+  /** every string with one look-alike swap at a position in [from, to) */
+  const swaps = (s: string, from: number, to: number) => {
+    const res: string[] = [];
+    for (let i = from; i < to; i++) for (const alt of LOOKALIKE[s[i]] ?? '') res.push(s.slice(0, i) + alt + s.slice(i + 1));
+    return res;
+  };
+  const num1 = swaps(code, dash + 1, code.length);                         // card number, one digit off
+  const num2 = num1.flatMap((c) => swaps(c, dash + 1, code.length));      // card number, two digits off
+  const set1 = swaps(code, 0, dash).filter((c) => /^[A-Z]+\d{2}-/.test(c)); // set number, one digit off
+  const out = new Set<string>();
+  for (const c of [...num1, ...num2, ...set1]) if (c !== code && known(c)) out.add(c);
+  return [...out].slice(0, max);
+}
+
 /** "OP01-120" → "OP01" */
 export const setOf = (code: string) => code.split('-')[0];
 

@@ -75,6 +75,7 @@ function Shell({ user }: { user: User }) {
   const [tab, setTab] = useState<'colecao' | 'conta'>('colecao');
   const [adding, setAdding] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [typePrefix, setTypePrefix] = useState('');
   const [cards, setCards] = useState<Collection>({});
   const [catalog, setCatalog] = useState<Catalog>({});
   const [focus, setFocus] = useState<string | null>(null);
@@ -129,12 +130,12 @@ function Shell({ user }: { user: User }) {
         <Scanner catalog={catalog} owned={cards}
           renderArt={(code) => <CardArt code={code} info={catalog[code]} />}
           onAdd={(code) => { change(code, 1); setTab('colecao'); setFocus(code); }}
-          onType={() => { setScanning(false); setAdding(true); }}
+          onType={(prefix) => { setScanning(false); setTypePrefix(prefix ?? ''); setAdding(true); }}
           onClose={() => setScanning(false)} />
       )}
 
       {adding && (
-        <AddSheet catalog={catalog} owned={cards} onClose={() => setAdding(false)}
+        <AddSheet catalog={catalog} owned={cards} initial={typePrefix} onClose={() => { setAdding(false); setTypePrefix(''); }}
           onAdd={(code) => { change(code, 1); setTab('colecao'); setFocus(code); }} />
       )}
 
@@ -308,10 +309,10 @@ function CardArt({ code, info }: { code: string; info?: Catalog[string] }) {
 
 // ---------- Add a card (typed code until the camera scanner lands) ----------
 
-function AddSheet({ catalog, owned, onAdd, onClose }: {
-  catalog: Catalog; owned: Collection; onAdd: (code: string) => void; onClose: () => void;
+function AddSheet({ catalog, owned, initial = '', onAdd, onClose }: {
+  catalog: Catalog; owned: Collection; initial?: string; onAdd: (code: string) => void; onClose: () => void;
 }) {
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState(initial);
   const [added, setAdded] = useState<string[]>([]);
   const code = normalizeCode(input);
   const info = code ? catalog[code] : undefined;

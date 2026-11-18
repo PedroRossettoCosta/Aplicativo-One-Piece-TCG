@@ -2,7 +2,7 @@
 // Frames never leave the phone. tesseract.js is loaded only when the scanner opens.
 import { useEffect, useRef, useState } from 'react';
 import type { Worker } from 'tesseract.js';
-import { findCode, type Catalog } from './cards';
+import { findCode, similarCodes, type Catalog } from './cards';
 import { CloseIcon, PlusIcon } from './icons';
 
 type Props = {
@@ -10,7 +10,7 @@ type Props = {
   owned: Record<string, number>;
   renderArt: (code: string) => React.ReactNode;
   onAdd: (code: string) => void;
-  onType: () => void; // fall back to typing the code
+  onType: (prefix?: string) => void; // fall back to typing the code (optionally pre-filled, e.g. "OP17-")
   onClose: () => void;
 };
 
@@ -61,13 +61,17 @@ export default function Scanner({ catalog, owned, renderArt, onAdd, onType, onCl
 
       const canvas = document.createElement('canvas');
       let lastHit = Date.now();
+      let recent: (string | null)[] = []; // last 3 reads; a code must appear in 2 of them
       while (!stopped) {
-        if (paused.current || !v.videoWidth || !zone.current) { await wait(250); continue; }
+        if (paused.current || !v.videoWidth || !zone.current) { recent = []; await wait(250); continue; }
         grabZone(v, zone.current, canvas);
         const { data } = await worker.recognize(canvas);
         if (stopped) break;
-        const code = findCode(data.text, (c) => c in catalogRef.current);
+        const read = findCode(data.text, (c) => c in catalogRef.current);
+        recent = [...recent, read].slice(-3);
+        const code = read && recent.filter((r) => r === read).length >= 2 ? read : null;
         if (code && !paused.current) {
+          recent = [];
           paused.current = true;
           navigator.vibrate?.(60);
           setFound(code);
@@ -126,7 +130,18 @@ export default function Scanner({ catalog, owned, renderArt, onAdd, onType, onCl
                 <button className="btn primary" onClick={() => { onAdd(found); setAdded((n) => n + 1); resume(); }}>
                   <PlusIcon /> Adicionar
                 </button>
-                <button className="btn" onClick={resume}>Não é essa</button>
+                <button className="btn" onClick={resume}>Escanear de novo</button>
+              </div>
+            </div>
+            <div className="scan-alts">
+              <p className="hint">Não é essa? Talvez:</p>
+              <div className="chips">
+                {similarCodes(found, (c) => c in catalog, 4).map((c) => (
+                  <button key={c} className="chip" onClick={() => setFound(c)}>
+                    <strong>{c}</strong> <span>{catalog[c]?.n}</span>
+                  </button>
+                ))}
+                <button className="chip" onClick={() => onType(found.slice(0, found.indexOf('-') + 1))}>Outro número…</button>
               </div>
             </div>
           </div>
@@ -135,7 +150,7 @@ export default function Scanner({ catalog, owned, renderArt, onAdd, onType, onCl
             {status === 'starting' && <p>Abrindo a câmera…</p>}
             {status === 'scanning' && (
               <>
-                <p><strong>Encaixe a carta na moldura.</strong> O código fica no canto destacado.</p>
+                <p><strong>Aproxime até a carta preencher a moldura.</strong> O código deve ficar dentro da faixa laranja.</p>
                 {slow && <p className="hint">Dica: chegue mais perto, segure firme e evite reflexo de luz.</p>}
               </>
             )}
@@ -143,7 +158,7 @@ export default function Scanner({ catalog, owned, renderArt, onAdd, onType, onCl
               <p>Sem acesso à câmera. No iPhone: Ajustes → Safari → Câmera → Permitir. Depois abra o scanner de novo.</p>
             )}
             {status === 'unsupported' && <p>Este navegador não permite usar a câmera aqui.</p>}
-            <button className="link" onClick={onType}>Digitar o código</button>
+            <button className="link" onClick={() => onType()}>Digitar o código</button>
           </div>
         )}
       </div>
