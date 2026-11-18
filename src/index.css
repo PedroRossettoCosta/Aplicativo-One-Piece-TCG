@@ -240,3 +240,12 @@ h2 { font-size: 17px; font-weight: 750; letter-spacing: -0.01em; }
 .inline-link:hover { color: var(--text); }
 .price-fields { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .price-fields .field input { min-width: 0; padding: 0 10px; font-variant-numeric: tabular-nums; }
+.price-total { padding-top: 6px; margin-top: 2px; border-top: 1px solid var(--line); }
+.price-total p { font-size: 12px; font-weight: 650; color: var(--text-2); }
+
+/* touch screens keep :hover after a tap; only show hover where a real pointer hovers */
+@media (hover: none) {
+  .btn:hover { background: var(--ink-2); }
+  .btn.primary:hover { background: var(--signal); }
+  .stepper button:hover, .icon-btn:hover { background: none; }
+}

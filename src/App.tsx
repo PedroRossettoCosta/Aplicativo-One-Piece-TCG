@@ -258,6 +258,14 @@ function Tile({ code, qty, info, price, focused, onToggle, change, onPrice }: {
                   <div key={k}><dt>{label}</dt><dd>{brl(price[k]!)}</dd></div>
                 ))}
               </dl>
+              {qty > 1 && (
+                <dl className="price-total" aria-label={`Total de ${qty} cópias`}>
+                  <p>Total das {qty} cópias</p>
+                  {PRICE_FIELDS.map(([k, label]) => price[k] != null && (
+                    <div key={k}><dt>{label}</dt><dd>{brl(price[k]! * qty)}</dd></div>
+                  ))}
+                </dl>
+              )}
               <p className={`price-age${daysSince(price.at) > 7 ? ' stale' : ''}`}>
                 Anotado {ageLabel(price.at)} · <button className="inline-link" onClick={onPrice}>editar</button>
               </p>
