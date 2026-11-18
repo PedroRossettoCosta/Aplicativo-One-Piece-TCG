@@ -29,14 +29,16 @@ export type Prices = Record<string, Price>;
 
 export const onUserChange = (cb: (user: User | null) => void) => onAuthStateChanged(auth, cb);
 
-/** "Manter conectado": remember = stay logged in on this device; otherwise only until the tab closes. */
-const remember = (on: boolean) => setPersistence(auth, on ? browserLocalPersistence : browserSessionPersistence);
-export const signUp = (email: string, password: string, keep = true) =>
-  remember(keep).then(() => createUserWithEmailAndPassword(auth, email, password));
-export const signIn = (email: string, password: string, keep = true) =>
-  remember(keep).then(() => signInWithEmailAndPassword(auth, email, password));
-export const signInWithGoogle = (keep = true) =>
-  remember(keep).then(() => signInWithPopup(auth, new GoogleAuthProvider()));
+/**
+ * "Manter conectado": on = stay logged in on this device; off = only until the tab closes.
+ * Set it when the checkbox changes, never inside the sign-in tap: iOS Safari only opens the Google
+ * popup if it is opened immediately in the tap, so nothing may be awaited before signInWithPopup.
+ */
+export const setRemember = (on: boolean) =>
+  setPersistence(auth, on ? browserLocalPersistence : browserSessionPersistence);
+export const signUp = (email: string, password: string) => createUserWithEmailAndPassword(auth, email, password);
+export const signIn = (email: string, password: string) => signInWithEmailAndPassword(auth, email, password);
+export const signInWithGoogle = () => signInWithPopup(auth, new GoogleAuthProvider());
 export const resetPassword = (email: string) => sendPasswordResetEmail(auth, email);
 export const logOut = () => signOut(auth);
 

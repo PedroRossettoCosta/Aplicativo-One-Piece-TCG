@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
-  onUserChange, signIn, signUp, signInWithGoogle, resetPassword, logOut, deleteAccount,
+  onUserChange, signIn, signUp, signInWithGoogle, setRemember, resetPassword, logOut, deleteAccount,
   watchCollection, changeQuantity, savePrice, type User, type Collection, type Price, type Prices,
 } from './backend';
 import {
@@ -26,6 +26,7 @@ function LoginScreen() {
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [keep, setKeep] = useState(true);
+  useEffect(() => { setRemember(keep); }, [keep]);
 
   const run =(action: () => Promise<unknown>, done = '') => {
     setBusy(true);
@@ -40,7 +41,7 @@ function LoginScreen() {
       <div className="login-body">
         <h1>Sua coleção de One Piece, carta por carta.</h1>
         <p className="lede">Escaneie, organize por coleção e veja o preço na Liga One Piece.</p>
-        <form onSubmit={(e) => { e.preventDefault(); run(() => signIn(email, password, keep)); }} className="stack">
+        <form onSubmit={(e) => { e.preventDefault(); run(() => signIn(email, password)); }} className="stack">
           <label className="field">
             <span>E-mail</span>
             <input type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
@@ -55,8 +56,8 @@ function LoginScreen() {
           </label>
           <button type="submit" className="btn primary" disabled={busy}>Entrar</button>
           <div className="row2">
-            <button type="button" className="btn" disabled={busy} onClick={() => run(() => signUp(email, password, keep))}>Criar conta</button>
-            <button type="button" className="btn" disabled={busy} onClick={() => run(() => signInWithGoogle(keep))}>Entrar com Google</button>
+            <button type="button" className="btn" disabled={busy} onClick={() => run(() => signUp(email, password))}>Criar conta</button>
+            <button type="button" className="btn" disabled={busy} onClick={() => run(signInWithGoogle)}>Entrar com Google</button>
           </div>
           <button type="button" className="link" onClick={() => run(() => resetPassword(email), 'Enviamos um e-mail para você criar uma nova senha.')}>Esqueci a senha</button>
         </form>
