@@ -1,9 +1,9 @@
 // Camera scanner: reads the printed card code (bottom-right corner) with on-device OCR.
 // Frames never leave the phone. tesseract.js is loaded only when the scanner opens.
 import { useEffect, useRef, useState } from 'react';
-import type { Worker } from 'tesseract.js';
 import { findCode, similarCodes, setOf, type Catalog } from './cards';
-import { fingerprintsInFrame, bestDistance, decode } from './fingerprint';
+import { fingerprintsInFrame, chooseByArt } from './fingerprint';
+import { getOcr, readText, setOcrProgress } from './ocr';
 import { CloseIcon, PlusIcon } from './icons';
 
 type Props = {
@@ -39,7 +39,6 @@ export default function Scanner({ catalog, owned, renderArt, onAdd, onType, onCl
   // Camera + OCR loop
   useEffect(() => {
     let stream: MediaStream | undefined;
-    let worker: Worker | undefined;
     let stopped = false;
 
     (async () => {
@@ -60,54 +59,49 @@ export default function Scanner({ catalog, owned, renderArt, onAdd, onType, onCl
       if ((track.getCapabilities?.() as { torch?: boolean } | undefined)?.torch) setTorch(false);
       setStatus('scanning');
       setStep({ kind: 'loading', progress: 0 });
-
-      const { createWorker, PSM } = await import('tesseract.js');
-      worker = await createWorker('eng', 1, {
-        // first use downloads the text reader (a few MB); show how far along it is
-        logger: (m: { status: string; progress: number }) => {
-          if (/loading|initializ/.test(m.status)) setStep({ kind: 'loading', progress: m.progress });
-        },
-      });
+      // usually already loaded (kept alive between sessions / preloaded); otherwise shows download progress
+      setOcrProgress((p) => setStep({ kind: 'loading', progress: p }));
+      await getOcr().catch(() => {});
+      setOcrProgress(undefined);
       if (stopped) return;
       setStep({ kind: 'searching' });
-      await worker.setParameters({
-        tessedit_char_whitelist: 'OPSTEBRI0123456789-',
-        tessedit_pageseg_mode: PSM.SPARSE_TEXT,
-      });
 
       const canvas = document.createElement('canvas');
+      const known = (c: string) => c in catalogRef.current;
       let lastHit = Date.now();
-      let recent: (string | null)[] = []; // last 3 reads; a code must appear in 2 of them
+      let recent: (string | null)[] = []; // last 3 reads
       while (!stopped) {
-        if (paused.current || !v.videoWidth || !zone.current) { recent = []; await wait(250); continue; }
+        if (paused.current || !v.videoWidth || !zone.current || !frame.current) { recent = []; await wait(250); continue; }
         grabZone(v, zone.current, canvas);
-        const { data } = await worker.recognize(canvas);
+        const read = findCode(await readText(canvas), known);
         if (stopped) break;
-        const read = findCode(data.text, (c) => c in catalogRef.current);
         recent = [...recent, read].slice(-3);
-        const code = read && recent.filter((r) => r === read).length >= 2 ? read : null;
-        if (!paused.current) setStep(read && !code ? { kind: 'confirming', code: read } : { kind: 'searching' });
-        if (code && !paused.current && frame.current) {
-          recent = [];
-          paused.current = true;
-          navigator.vibrate?.(60);
-          setStep({ kind: 'art', code });
-          // OCR often gets one digit wrong (006 vs 096): let the artwork decide between look-alike codes
-          const best = await pickByArt(v, frame.current, code, (c) => c in catalogRef.current).catch(() => code);
-          if (stopped) break;
-          setStep({ kind: 'searching' });
-          setFound(best);
-          setStatus('found');
-          lastHit = Date.now();
-        }
-        setSlow(Date.now() - lastHit > 6000);
+        if (!read || paused.current) { setStep({ kind: 'searching' }); setSlow(Date.now() - lastHit > 6000); continue; }
+
+        // Fast path: one read is enough when the artwork clearly agrees.
+        // Otherwise wait until the same code is read twice in the last 3 frames.
+        const twice = recent.filter((r) => r === read).length >= 2;
+        setStep({ kind: twice ? 'art' : 'confirming', code: read });
+        // OCR often gets one digit wrong (006 vs 096): let the artwork decide between look-alike codes
+        const art = await pickByArt(v, frame.current, read, known).catch(() => ({ code: read, sure: false }));
+        if (stopped) break;
+        if (!art.sure && !twice) continue;
+
+        recent = [];
+        paused.current = true;
+        navigator.vibrate?.(60);
+        setStep({ kind: 'searching' });
+        setFound(art.code);
+        setStatus('found');
+        lastHit = Date.now();
       }
     })();
 
     return () => {
       stopped = true;
+      setOcrProgress(undefined);
       stream?.getTracks().forEach((t) => t.stop());
-      worker?.terminate();
+      // the text reader stays loaded on purpose, so the next scan starts instantly
     };
   }, []);
 
@@ -234,20 +228,14 @@ async function pickByArt(v: HTMLVideoElement, frameEl: HTMLElement, code: string
   const ctx = c.getContext('2d', { willReadFrequently: true })!;
   ctx.drawImage(v, sx, sy, sw, sh, 0, 0, c.width, c.height);
   const seen = fingerprintsInFrame(ctx.getImageData(0, 0, c.width, c.height).data, c.width, c.height);
-
-  const score = (k: string) => (fps[k] ? bestDistance(seen, decode(fps[k])) : Infinity);
-  const ocrScore = score(code);
-  let best = code, bestScore = ocrScore;
-  for (const k of candidates) { const s = score(k); if (s < bestScore) { best = k; bestScore = s; } }
-  // switch only when the art is clearly closer (parallel/alt-art printings can differ from the reference)
-  return best !== code && bestScore < ocrScore * 0.8 ? best : code;
+  return chooseByArt(seen, code, candidates, fps);
 }
 
 /** Copies the on-screen code zone (plus a margin) out of the video frame, as high-contrast black on white. */
 function grabZone(v: HTMLVideoElement, zoneEl: HTMLElement, canvas: HTMLCanvasElement) {
-  const { sx, sy, sw, sh } = videoRect(v, zoneEl, 0.25);
+  const { sx, sy, sw, sh } = videoRect(v, zoneEl, 0.15);
 
-  const outW = 1200; // upscale: the printed code is tiny, OCR needs ~30px tall letters
+  const outW = 1000; // upscale: the printed code is tiny, OCR needs ~30px tall letters
   canvas.width = outW;
   canvas.height = Math.round((outW * sh) / sw);
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;

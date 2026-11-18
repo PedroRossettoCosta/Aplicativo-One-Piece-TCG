@@ -7,6 +7,7 @@ import {
   normalizeCode, ligaUrl, imageUrl, SHOW_IMAGES, setOf, loadCatalog, colorsPt, colorKeys, type Catalog,
 } from './cards';
 import Scanner from './Scanner';
+import { preloadOcr } from './ocr';
 import { SearchIcon, ScanIcon, ShelfIcon, UserIcon, PlusIcon, MinusIcon, CloseIcon, ExternalIcon } from './icons';
 
 export default function App() {
@@ -84,7 +85,7 @@ function Shell({ user }: { user: User }) {
   const [pricing, setPricing] = useState<string | null>(null); // card whose Liga price is being noted
 
   useEffect(() => watchCollection(user.uid, (c, p) => { setCards(c); setPrices(p); }), [user.uid]);
-  useEffect(() => { loadCatalog().then(setCatalog); }, []);
+  useEffect(() => { loadCatalog().then(setCatalog); preloadOcr(); }, []);
 
   // Back from Liga: offer to note the price. Stored so it survives iOS reloading the app meanwhile.
   useEffect(() => {

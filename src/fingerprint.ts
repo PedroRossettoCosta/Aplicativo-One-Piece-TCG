@@ -60,6 +60,27 @@ export function fingerprintsInFrame(rgba: Uint8ClampedArray | Uint8Array, width:
 /** Best (smallest) distance between any placement seen in the frame and a reference. */
 export const bestDistance = (seen: Int8Array[], ref: Int8Array) => Math.min(...seen.map((s) => distance(s, ref)));
 
+/**
+ * Picks between the OCR code and its look-alikes by artwork.
+ * - switches away from the OCR code only when another card's art is clearly closer;
+ * - `sure` = the chosen card's art is clearly closer than every other candidate, so a single OCR read
+ *   is enough (no need to wait for a second, matching read).
+ */
+export function chooseByArt(seen: Int8Array[], read: string, candidates: string[], refs: Record<string, string>) {
+  const scores = candidates
+    .filter((c) => refs[c])
+    .map((c) => ({ c, d: bestDistance(seen, decode(refs[c])) }))
+    .sort((a, b) => a.d - b.d);
+  const ocr = scores.find((s) => s.c === read);
+  if (!ocr || scores.length === 0) return { code: read, sure: false }; // no reference art: trust OCR, not sure
+  const best = scores[0];
+  const code = best.c !== read && best.d < ocr.d * 0.8 ? best.c : read;
+  const chosen = scores.find((s) => s.c === code)!;
+  const runnerUp = scores.find((s) => s.c !== code);
+  const sure = chosen === best && (!runnerUp || chosen.d < runnerUp.d * 0.8);
+  return { code, sure };
+}
+
 /** Smaller = more alike. */
 export function distance(a: Int8Array, b: Int8Array): number {
   let d = 0;
