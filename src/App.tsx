@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   onUserChange, signIn, signUp, signInWithGoogle, resetPassword, logOut, deleteAccount,
-  watchCollection, changeQuantity, type User, type Collection,
+  watchCollection, changeQuantity, savePrice, type User, type Collection, type Price, type Prices,
 } from './backend';
 import {
   normalizeCode, ligaUrl, imageUrl, SHOW_IMAGES, setOf, loadCatalog, colorsPt, colorKeys, type Catalog,
@@ -25,8 +25,9 @@ function LoginScreen() {
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [keep, setKeep] = useState(true);
 
-  const run = (action: () => Promise<unknown>, done = '') => {
+  const run =(action: () => Promise<unknown>, done = '') => {
     setBusy(true);
     action().then(() => setMessage(done), (e) => setMessage(friendlyError(e))).finally(() => setBusy(false));
   };
@@ -39,7 +40,7 @@ function LoginScreen() {
       <div className="login-body">
         <h1>Sua coleção de One Piece, carta por carta.</h1>
         <p className="lede">Escaneie, organize por coleção e veja o preço na Liga One Piece.</p>
-        <form onSubmit={(e) => { e.preventDefault(); run(() => signIn(email, password)); }} className="stack">
+        <form onSubmit={(e) => { e.preventDefault(); run(() => signIn(email, password, keep)); }} className="stack">
           <label className="field">
             <span>E-mail</span>
             <input type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
@@ -48,10 +49,14 @@ function LoginScreen() {
             <span>Senha</span>
             <input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} />
           </label>
+          <label className="check">
+            <input type="checkbox" checked={keep} onChange={(e) => setKeep(e.target.checked)} />
+            <span>Manter conectado neste aparelho</span>
+          </label>
           <button type="submit" className="btn primary" disabled={busy}>Entrar</button>
           <div className="row2">
-            <button type="button" className="btn" disabled={busy} onClick={() => run(() => signUp(email, password))}>Criar conta</button>
-            <button type="button" className="btn" disabled={busy} onClick={() => run(signInWithGoogle)}>Entrar com Google</button>
+            <button type="button" className="btn" disabled={busy} onClick={() => run(() => signUp(email, password, keep))}>Criar conta</button>
+            <button type="button" className="btn" disabled={busy} onClick={() => run(() => signInWithGoogle(keep))}>Entrar com Google</button>
           </div>
           <button type="button" className="link" onClick={() => run(() => resetPassword(email), 'Enviamos um e-mail para você criar uma nova senha.')}>Esqueci a senha</button>
         </form>
@@ -70,9 +75,23 @@ function Shell({ user }: { user: User }) {
   const [catalog, setCatalog] = useState<Catalog>({});
   const [focus, setFocus] = useState<string | null>(null);
   const [message, setMessage] = useState('');
+  const [prices, setPrices] = useState<Prices>({});
+  const [pricing, setPricing] = useState<string | null>(null); // card whose Liga price is being noted
 
-  useEffect(() => watchCollection(user.uid, setCards), [user.uid]);
+  useEffect(() => watchCollection(user.uid, (c, p) => { setCards(c); setPrices(p); }), [user.uid]);
   useEffect(() => { loadCatalog().then(setCatalog); }, []);
+
+  // Back from Liga: offer to note the price. Stored so it survives iOS reloading the app meanwhile.
+  useEffect(() => {
+    const check = () => {
+      if (document.visibilityState !== 'visible') return;
+      const pending = readPending();
+      if (pending) { clearPending(); setPricing(pending); setFocus(pending); }
+    };
+    check();
+    document.addEventListener('visibilitychange', check);
+    return () => document.removeEventListener('visibilitychange', check);
+  }, []);
 
   const change = (code: string, delta: number) =>
     changeQuantity(user.uid, code, delta, cards[code] ?? 0).catch((e) => setMessage(friendlyError(e)));
@@ -83,8 +102,8 @@ function Shell({ user }: { user: User }) {
   return (
     <div className="shell">
       {tab === 'colecao' ? (
-        <CollectionScreen cards={cards} catalog={catalog} focus={focus} setFocus={setFocus}
-          change={change} total={total} onAdd={() => setAdding(true)} />
+        <CollectionScreen cards={cards} prices={prices} catalog={catalog} focus={focus} setFocus={setFocus}
+          change={change} total={total} onAdd={() => setAdding(true)} onPrice={setPricing} />
       ) : (
         <AccountScreen user={user} different={codes.length} total={total} onError={setMessage} />
       )}
@@ -106,6 +125,14 @@ function Shell({ user }: { user: User }) {
         <AddSheet catalog={catalog} owned={cards} onClose={() => setAdding(false)}
           onAdd={(code) => { change(code, 1); setTab('colecao'); setFocus(code); }} />
       )}
+
+      {pricing && (
+        <PriceSheet code={pricing} info={catalog[pricing]} current={prices[pricing]} onClose={() => setPricing(null)}
+          onSave={(price) => {
+            savePrice(user.uid, pricing, price).catch((e) => setMessage(friendlyError(e)));
+            setPricing(null);
+          }} />
+      )}
     </div>
   );
 }
@@ -113,11 +140,11 @@ function Shell({ user }: { user: User }) {
 // ---------- Collection: one shelf row per set ----------
 
 type ScreenProps = {
-  cards: Collection; catalog: Catalog; focus: string | null; setFocus: (c: string | null) => void;
-  change: (code: string, delta: number) => void; total: number; onAdd: () => void;
+  cards: Collection; prices: Prices; catalog: Catalog; focus: string | null; setFocus: (c: string | null) => void;
+  change: (code: string, delta: number) => void; total: number; onAdd: () => void; onPrice: (code: string) => void;
 };
 
-function CollectionScreen({ cards, catalog, focus, setFocus, change, total, onAdd }: ScreenProps) {
+function CollectionScreen({ cards, prices, catalog, focus, setFocus, change, total, onAdd, onPrice }: ScreenProps) {
   const [query, setQuery] = useState('');
   const codes = Object.keys(cards).sort();
 
@@ -182,8 +209,9 @@ function CollectionScreen({ cards, catalog, focus, setFocus, change, total, onAd
           ) : (
             <ul className="rail">
               {row.codes.map((code) => (
-                <Tile key={code} code={code} qty={cards[code]} info={catalog[code]}
-                  focused={focus === code} onToggle={() => setFocus(focus === code ? null : code)} change={change} />
+                <Tile key={code} code={code} qty={cards[code]} info={catalog[code]} price={prices[code]}
+                  focused={focus === code} onToggle={() => setFocus(focus === code ? null : code)}
+                  change={change} onPrice={() => onPrice(code)} />
               ))}
             </ul>
           )}
@@ -193,9 +221,9 @@ function CollectionScreen({ cards, catalog, focus, setFocus, change, total, onAd
   );
 }
 
-function Tile({ code, qty, info, focused, onToggle, change }: {
-  code: string; qty: number; info?: Catalog[string]; focused: boolean;
-  onToggle: () => void; change: (code: string, delta: number) => void;
+function Tile({ code, qty, info, price, focused, onToggle, change, onPrice }: {
+  code: string; qty: number; info?: Catalog[string]; price?: Price; focused: boolean;
+  onToggle: () => void; change: (code: string, delta: number) => void; onPrice: () => void;
 }) {
   const ref = useRef<HTMLLIElement>(null);
   useEffect(() => {
@@ -221,7 +249,21 @@ function Tile({ code, qty, info, focused, onToggle, change }: {
             <output aria-live="polite">{qty}</output>
             <button onClick={() => change(code, 1)} aria-label="Adicionar uma cópia"><PlusIcon /></button>
           </div>
-          <a className="liga" href={ligaUrl(code)} target="_blank" rel="noopener noreferrer">
+          {price ? (
+            <div className="price">
+              <dl>
+                {PRICE_FIELDS.map(([k, label]) => price[k] != null && (
+                  <div key={k}><dt>{label}</dt><dd>{brl(price[k]!)}</dd></div>
+                ))}
+              </dl>
+              <p className={`price-age${daysSince(price.at) > 7 ? ' stale' : ''}`}>
+                Anotado {ageLabel(price.at)} · <button className="inline-link" onClick={onPrice}>editar</button>
+              </p>
+            </div>
+          ) : (
+            <button className="inline-link" onClick={onPrice}>Anotar preço da Liga</button>
+          )}
+          <a className="liga" href={ligaUrl(code)} target="_blank" rel="noopener noreferrer" onClick={() => markPending(code)}>
             Ver preço na Liga <ExternalIcon />
           </a>
         </div>
@@ -299,6 +341,84 @@ function AddSheet({ catalog, owned, onAdd, onClose }: {
         </form>
         {added.length > 0 && <p className="hint">Adicionadas agora: {added.join(', ')}</p>}
         <p className="hint">O scanner pela câmera chega na próxima versão.</p>
+      </section>
+    </div>
+  );
+}
+
+// ---------- Prices the player notes from Liga (typed by hand; Liga can't be read automatically) ----------
+
+const PRICE_FIELDS = [['min', 'Menor'], ['avg', 'Médio'], ['max', 'Maior']] as const;
+const brl = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+/** "1.450,00" / "R$ 145" / "145.5" → number, or undefined when empty/invalid. */
+function parseBrl(s: string): number | undefined {
+  let t = s.replace(/[R$\s]/g, '');
+  if (!t) return undefined;
+  if (t.includes(',') || /^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '').replace(',', '.'); // "1.450" = 1450
+  const n = Number(t);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : undefined;
+}
+const daysSince = (at: number) => Math.floor((Date.now() - at) / 86_400_000);
+function ageLabel(at: number) {
+  const d = daysSince(at);
+  return d <= 0 ? 'hoje' : d === 1 ? 'ontem' : `há ${d} dias`;
+}
+
+// Remembers which card's Liga page was opened, for up to 1 hour, so the price sheet can appear on return.
+const PENDING_KEY = 'pendingPriceCheck';
+function markPending(code: string) {
+  try { localStorage.setItem(PENDING_KEY, JSON.stringify({ code, at: Date.now() })); } catch { /* storage blocked */ }
+}
+function readPending(): string | null {
+  try {
+    const p = JSON.parse(localStorage.getItem(PENDING_KEY) ?? 'null');
+    return p && Date.now() - p.at < 3_600_000 ? p.code : null;
+  } catch { return null; }
+}
+function clearPending() {
+  try { localStorage.removeItem(PENDING_KEY); } catch { /* storage blocked */ }
+}
+
+function PriceSheet({ code, info, current, onSave, onClose }: {
+  code: string; info?: Catalog[string]; current?: Price; onSave: (p: Price) => void; onClose: () => void;
+}) {
+  const initial = (k: 'min' | 'avg' | 'max') => (current?.[k] != null ? current[k]!.toFixed(2).replace('.', ',') : '');
+  const [values, setValues] = useState({ min: initial('min'), avg: initial('avg'), max: initial('max') });
+  const parsed = { min: parseBrl(values.min), avg: parseBrl(values.avg), max: parseBrl(values.max) };
+  const valid = Object.values(parsed).some((v) => v != null);
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!valid) return;
+    const price: Price = { at: Date.now() };
+    for (const [k] of PRICE_FIELDS) if (parsed[k] != null) price[k] = parsed[k];
+    onSave(price);
+  };
+
+  return (
+    <div className="sheet-backdrop" onClick={onClose}>
+      <section className="sheet" role="dialog" aria-modal="true" aria-labelledby="price-title" onClick={(e) => e.stopPropagation()}>
+        <div className="sheet-head">
+          <h2 id="price-title">Preço na Liga: {info?.n ?? code}</h2>
+          <button className="icon-btn" onClick={onClose} aria-label="Fechar"><CloseIcon /></button>
+        </div>
+        <p className="hint">
+          Copie os valores que você viu na Liga. Preencha só os que quiser.
+          {current && ` Última anotação: ${ageLabel(current.at)}.`}
+        </p>
+        <form onSubmit={submit} className="add-form">
+          <div className="price-fields">
+            {PRICE_FIELDS.map(([k, label]) => (
+              <label key={k} className="field">
+                <span>{label} (R$)</span>
+                <input inputMode="decimal" placeholder="0,00" value={values[k]} autoComplete="off"
+                  onChange={(e) => setValues({ ...values, [k]: e.target.value })} />
+              </label>
+            ))}
+          </div>
+          <button type="submit" className="btn primary" disabled={!valid}>Salvar preço</button>
+          <button type="button" className="link" onClick={onClose}>Agora não</button>
+        </form>
       </section>
     </div>
   );

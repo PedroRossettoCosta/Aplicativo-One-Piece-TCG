@@ -33,7 +33,7 @@ Scanning reads the printed card code rather than recognising the artwork, so it 
 
 - Accounts: e-mail + password and Google (Firebase Authentication).
 - Collection: one Firestore document per player, `users/{uid} = { cards: { code: quantity } }`; quantity 0 removes the card. Works offline via local cache.
-- **No prices in the app**: no stored, estimated or displayed prices. Only the "Ver preço na Liga" link.
+- **Prices are only what the player notes by hand** (changed 2026-11-18 at the user's request): after opening a card on Liga, the app offers to record the Menor / Médio / Maior values the player saw, stored with the date and shown with its age ("há 3 dias"; amber after 7 days). The app never fetches, estimates or invents prices.
 - **Never claim a partnership with Liga One Piece** or any official status. There is none.
 - Card images: user decision (2026-11-18) is to show Bandai's "SAMPLE"-watermarked card images, loaded from optcgapi.com. Bandai's own server blocks embedding (Cross-Origin-Resource-Policy). A watermark reduces but does not remove copyright risk, so a kill switch (`VITE_CARD_IMAGES=off`) swaps every image for a colour block. Never self-host copies. Catalog (names, colours, rarity, set; no prices) is built from optcgapi.com by `scripts/build-catalog.mjs`.
 - Supported card code formats: OP##-###, ST##-###, EB##-###, PRB##-###, P-###.

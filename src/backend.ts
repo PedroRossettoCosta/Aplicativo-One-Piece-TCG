@@ -4,6 +4,7 @@ import { initializeApp } from 'firebase/app';
 import {
   getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword,
   signInWithPopup, GoogleAuthProvider, sendPasswordResetEmail, signOut, deleteUser, type User,
+  setPersistence, browserLocalPersistence, browserSessionPersistence,
 } from 'firebase/auth';
 import {
   initializeFirestore, persistentLocalCache, doc, onSnapshot, setDoc, deleteDoc, increment, deleteField,
@@ -22,27 +23,42 @@ const db = initializeFirestore(app, { localCache: persistentLocalCache() });
 export type { User };
 /** Card code → quantity, e.g. { "OP01-120": 2 } */
 export type Collection = Record<string, number>;
+/** A price the player copied from Liga by hand (R$), with when they noted it (ms since epoch). */
+export type Price = { min?: number; avg?: number; max?: number; at: number };
+export type Prices = Record<string, Price>;
 
 export const onUserChange = (cb: (user: User | null) => void) => onAuthStateChanged(auth, cb);
-export const signUp = (email: string, password: string) => createUserWithEmailAndPassword(auth, email, password);
-export const signIn = (email: string, password: string) => signInWithEmailAndPassword(auth, email, password);
-export const signInWithGoogle = () => signInWithPopup(auth, new GoogleAuthProvider());
+
+/** "Manter conectado": remember = stay logged in on this device; otherwise only until the tab closes. */
+const remember = (on: boolean) => setPersistence(auth, on ? browserLocalPersistence : browserSessionPersistence);
+export const signUp = (email: string, password: string, keep = true) =>
+  remember(keep).then(() => createUserWithEmailAndPassword(auth, email, password));
+export const signIn = (email: string, password: string, keep = true) =>
+  remember(keep).then(() => signInWithEmailAndPassword(auth, email, password));
+export const signInWithGoogle = (keep = true) =>
+  remember(keep).then(() => signInWithPopup(auth, new GoogleAuthProvider()));
 export const resetPassword = (email: string) => sendPasswordResetEmail(auth, email);
 export const logOut = () => signOut(auth);
 
 const userDoc = (uid: string) => doc(db, 'users', uid);
 
-/** Calls cb with the player's collection now and whenever it changes. Returns an unsubscribe function. */
-export const watchCollection = (uid: string, cb: (cards: Collection) => void) =>
-  onSnapshot(userDoc(uid), (snap) => cb(snap.data()?.cards ?? {}));
+/** Calls cb with the player's collection and noted prices now and whenever they change. Returns an unsubscribe function. */
+export const watchCollection = (uid: string, cb: (cards: Collection, prices: Prices) => void) =>
+  onSnapshot(userDoc(uid), (snap) => cb(snap.data()?.cards ?? {}, snap.data()?.prices ?? {}));
 
-/** Adds (delta > 0) or removes (delta < 0) copies of a card. Drops the card when it reaches 0. */
+/** Adds (delta > 0) or removes (delta < 0) copies of a card. Drops the card (and its noted price) at 0. */
 export const changeQuantity = (uid: string, code: string, delta: number, current: number) =>
   setDoc(
     userDoc(uid),
-    { cards: { [code]: current + delta <= 0 ? deleteField() : increment(delta) } },
+    current + delta <= 0
+      ? { cards: { [code]: deleteField() }, prices: { [code]: deleteField() } }
+      : { cards: { [code]: increment(delta) } },
     { merge: true },
   );
+
+/** Saves the price the player noted from Liga for one card. */
+export const savePrice = (uid: string, code: string, price: Price) =>
+  setDoc(userDoc(uid), { prices: { [code]: price } }, { merge: true });
 
 /** LGPD: permanently deletes the player's collection and account. */
 export async function deleteAccount(user: User) {

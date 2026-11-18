@@ -223,3 +223,20 @@ h2 { font-size: 17px; font-weight: 750; letter-spacing: -0.01em; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* ---------- keep me signed in ---------- */
+.check { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 15px; color: var(--text-2); cursor: pointer; }
+.check input { width: 20px; height: 20px; accent-color: var(--signal); }
+
+/* ---------- noted Liga prices ---------- */
+.price { display: grid; gap: 4px; margin-top: 4px; }
+.price dl { display: grid; gap: 2px; }
+.price dl div { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; }
+.price dt { color: var(--text-2); }
+.price dd { font-weight: 700; font-variant-numeric: tabular-nums; }
+.price-age { font-size: 13px; color: var(--text-2); }
+.price-age.stale { color: #f5c543; } /* more than a week old: probably out of date */
+.inline-link { color: var(--text-2); text-decoration: underline; text-underline-offset: 3px; font-size: 13px; min-height: 32px; text-align: left; }
+.inline-link:hover { color: var(--text); }
+.price-fields { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.price-fields .field input { min-width: 0; padding: 0 10px; font-variant-numeric: tabular-nums; }
