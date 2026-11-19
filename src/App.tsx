@@ -384,7 +384,9 @@ function CollectionScreen({ cards, prices, catalog, focus, setFocus, change, tot
               {sel.missing ? ` · ${sel.missing} sem preço anotado` : ''}
             </p>
           </div>
-          {chosen.length > 0 && <button className="btn" onClick={() => setMarked([])}>Desmarcar</button>}
+          {chosen.length > 0
+            ? <button className="btn" onClick={() => setMarked([])}>Desmarcar</button>
+            : <button className="btn" onClick={() => setMarked(shownCodes)}>Marcar todas</button>}
         </div>
       )}
     </main>

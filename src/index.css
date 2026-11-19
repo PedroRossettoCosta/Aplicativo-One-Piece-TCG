@@ -451,6 +451,8 @@ h2 { font-size: 17px; font-weight: 750; letter-spacing: -0.01em; }
 }
 .buy-total { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--signal-text); }
 .buy-bar .btn { flex: none; }
+/* keep the text clear of the round scan button that rises out of the tab bar */
+.buy-bar { padding-bottom: 34px; }
 
 /* ---------- decks ---------- */
 .deck-tools, .deck-actions { display: flex; flex-wrap: wrap; gap: 10px; padding: 0 var(--pad) 12px; }
