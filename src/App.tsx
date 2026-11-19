@@ -86,6 +86,12 @@ function Shell({ user }: { user: User }) {
   const [catalog, setCatalog] = useState<Catalog>({});
   const [focus, setFocus] = useState<string | null>(null);
   const [message, setMessage] = useState('');
+  // notices close by themselves after enough time to read them (or with the ×)
+  useEffect(() => {
+    if (!message) return;
+    const t = setTimeout(() => setMessage(''), Math.max(4000, message.length * 60));
+    return () => clearTimeout(t);
+  }, [message]);
   const [prices, setPrices] = useState<Prices>({});
   const [pricing, setPricing] = useState<string | null>(null); // card whose Liga price is being noted
 
@@ -135,7 +141,12 @@ function Shell({ user }: { user: User }) {
         <AccountScreen user={user} different={codes.length} total={total} onError={setMessage} learnedCount={Object.keys(learned).length}
           onForget={() => { clearLearned(user.uid).then(() => { setLearned({}); learnedLoaded.current = true; setMessage('O scanner esqueceu o que aprendeu.'); }, (e) => setMessage(friendlyError(e))); }} />
       )}
-      {message && <p className="toast" role="status" onClick={() => setMessage('')}>{message}</p>}
+      {message && (
+        <div className="toast" role="status">
+          <p>{message}</p>
+          <button className="toast-close" aria-label="Fechar aviso" onClick={() => setMessage('')}><CloseIcon /></button>
+        </div>
+      )}
 
       <nav className="tabbar" aria-label="Navegação">
         <button className={tab === 'colecao' ? 'on' : ''} onClick={() => setTab('colecao')} aria-current={tab === 'colecao' ? 'page' : undefined}>
