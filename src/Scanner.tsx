@@ -1,8 +1,8 @@
-// Camera scanner: the player holds the phone close to the printed card code (bottom-right corner) and lines
-// it up in a small on-screen box, so the code is big and sharp; on-device OCR reads it.
+// Camera scanner: reads the printed card code (bottom-right corner) with on-device OCR.
 // Frames never leave the phone. tesseract.js is loaded only when the scanner opens.
 import { useEffect, useRef, useState } from 'react';
-import { findCode, similarCodes, type Catalog } from './cards';
+import { findCode, similarCodes, setOf, type Catalog } from './cards';
+import { fingerprintsInFrame, chooseByArt } from './fingerprint';
 import { getOcr, readText, setOcrProgress } from './ocr';
 import { CloseIcon, PlusIcon } from './icons';
 
@@ -25,6 +25,7 @@ type Step =
 export default function Scanner({ catalog, owned, renderArt, onAdd, onType, onClose }: Props) {
   const video = useRef<HTMLVideoElement>(null);
   const zone = useRef<HTMLDivElement>(null);
+  const frame = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<Status>('starting');
   const [found, setFound] = useState<string | null>(null);
   const [added, setAdded] = useState(0);
@@ -55,10 +56,7 @@ export default function Scanner({ catalog, owned, renderArt, onAdd, onType, onCl
       v.srcObject = stream;
       await v.play().catch(() => {});
       const track = stream.getVideoTracks()[0];
-      const caps = track.getCapabilities?.() as { torch?: boolean; zoom?: { min: number; max: number } } | undefined;
-      if (caps?.torch) setTorch(false);
-      // a little zoom lets the phone stay far enough away to keep focus while the code still looks big
-      if (caps?.zoom && caps.zoom.max >= 1.5) await track.applyConstraints({ advanced: [{ zoom: Math.min(2, caps.zoom.max) } as MediaTrackConstraintSet] }).catch(() => {});
+      if ((track.getCapabilities?.() as { torch?: boolean } | undefined)?.torch) setTorch(false);
       setStatus('scanning');
       setStep({ kind: 'loading', progress: 0 });
       // usually already loaded (kept alive between sessions / preloaded); otherwise shows download progress
@@ -73,21 +71,27 @@ export default function Scanner({ catalog, owned, renderArt, onAdd, onType, onCl
       let lastHit = Date.now();
       let recent: (string | null)[] = []; // last 3 reads
       while (!stopped) {
-        if (paused.current || !v.videoWidth || !zone.current) { recent = []; await wait(250); continue; }
+        if (paused.current || !v.videoWidth || !zone.current || !frame.current) { recent = []; await wait(250); continue; }
         grabZone(v, zone.current, canvas);
         const read = findCode(await readText(canvas), known);
         if (stopped) break;
         recent = [...recent, read].slice(-3);
         if (!read || paused.current) { setStep({ kind: 'searching' }); setSlow(Date.now() - lastHit > 6000); continue; }
 
-        // a single read can have one digit wrong (006 vs 096): wait until the same code is read twice in 3 frames
-        if (recent.filter((r) => r === read).length < 2) { setStep({ kind: 'confirming', code: read }); continue; }
+        // Fast path: one read is enough when the artwork clearly agrees.
+        // Otherwise wait until the same code is read twice in the last 3 frames.
+        const twice = recent.filter((r) => r === read).length >= 2;
+        setStep({ kind: twice ? 'art' : 'confirming', code: read });
+        // OCR often gets one digit wrong (006 vs 096): let the artwork decide between look-alike codes
+        const art = await pickByArt(v, frame.current, read, known).catch(() => ({ code: read, sure: false }));
+        if (stopped) break;
+        if (!art.sure && !twice) continue;
 
         recent = [];
         paused.current = true;
         navigator.vibrate?.(60);
         setStep({ kind: 'searching' });
-        setFound(read);
+        setFound(art.code);
         setStatus('found');
         lastHit = Date.now();
       }
@@ -116,9 +120,8 @@ export default function Scanner({ catalog, owned, renderArt, onAdd, onType, onCl
     <div className="scanner" role="dialog" aria-modal="true" aria-label="Escanear carta">
       <video ref={video} className="scanner-video" playsInline muted autoPlay />
 
-      <div className="code-box-wrap" aria-hidden="true">
-        <p className="code-box-label">Código da carta aqui</p>
-        <div ref={zone} className={`code-box${step.kind === 'loading' ? '' : ' working'}`} />
+      <div ref={frame} className="scan-frame" aria-hidden="true">
+        <div ref={zone} className={`code-zone${step.kind === 'loading' ? '' : ' working'}`} />
       </div>
 
       <div className="scanner-top">
@@ -173,8 +176,8 @@ export default function Scanner({ catalog, owned, renderArt, onAdd, onType, onCl
                 {step.kind === 'loading' && (
                   <div className="progress" aria-hidden="true"><i style={{ width: `${Math.round(step.progress * 100)}%` }} /></div>
                 )}
-                <p><strong>Aproxime o celular do código</strong> (canto inferior direito da carta, ex.: OP17-088) até ele ficar dentro da caixa.</p>
-                {slow && <p className="hint">Dica: se ficar borrado, afaste um pouco até focar. Evite reflexo de luz no código.</p>}
+                <p><strong>Aproxime até a carta preencher a moldura.</strong> O código deve ficar dentro da faixa laranja.</p>
+                {slow && <p className="hint">Dica: chegue mais perto, segure firme e evite reflexo de luz.</p>}
               </>
             )}
             {status === 'denied' && (
@@ -204,6 +207,28 @@ function videoRect(v: HTMLVideoElement, el: HTMLElement, pad = 0) {
   const sw = Math.min(v.videoWidth - sx, (r.width * (1 + 2 * pad)) / scale);
   const sh = Math.min(v.videoHeight - sy, (r.height * (1 + 2 * pad)) / scale);
   return { sx, sy, sw, sh };
+}
+
+const fpCache = new Map<string, Promise<Record<string, string>>>();
+const loadSetFingerprints = (set: string) => {
+  if (!fpCache.has(set)) fpCache.set(set, fetch(`/fp/${set}.json`).then((r) => (r.ok ? r.json() : {})).catch(() => ({})));
+  return fpCache.get(set)!;
+};
+
+/**
+ * Compares the card in the frame with the OCR code and its look-alikes (one or two digits off)
+ * and returns the code whose artwork matches clearly better; otherwise keeps the OCR code.
+ */
+async function pickByArt(v: HTMLVideoElement, frameEl: HTMLElement, code: string, known: (c: string) => boolean) {
+  const candidates = [code, ...similarCodes(code, known, 12)];
+  const fps = Object.assign({}, ...(await Promise.all([...new Set(candidates.map(setOf))].map(loadSetFingerprints))));
+  const { sx, sy, sw, sh } = videoRect(v, frameEl);
+  const c = document.createElement('canvas');
+  c.width = 250; c.height = Math.round((250 * sh) / sw);
+  const ctx = c.getContext('2d', { willReadFrequently: true })!;
+  ctx.drawImage(v, sx, sy, sw, sh, 0, 0, c.width, c.height);
+  const seen = fingerprintsInFrame(ctx.getImageData(0, 0, c.width, c.height).data, c.width, c.height);
+  return chooseByArt(seen, code, candidates, fps);
 }
 
 /** Copies the on-screen code zone (plus a margin) out of the video frame, as high-contrast black on white. */
