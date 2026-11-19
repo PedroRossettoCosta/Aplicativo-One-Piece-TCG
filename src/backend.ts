@@ -76,7 +76,8 @@ export const changeQuantity = (uid: string, code: string, delta: number, current
 export const savePrice = (uid: string, code: string, price: Price) =>
   setDoc(userDoc(uid), { prices: { [code]: price } }, { merge: true });
 
-/** What the player taught the scanner: card code → up to 4 artwork fingerprints from their own camera. */
+/** What the player taught the scanner: card code → up to EXAMPLES_PER_CARD artwork fingerprints from their own camera. */
+export const EXAMPLES_PER_CARD = 6; // ~150 bytes each
 export type Learned = Record<string, string[]>;
 const learnedDoc = (uid: string) => doc(db, 'users', uid, 'private', 'learned');
 export const loadLearned = async (uid: string): Promise<Learned> =>

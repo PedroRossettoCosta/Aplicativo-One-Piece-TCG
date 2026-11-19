@@ -3,7 +3,7 @@ import {
   onUserChange, signIn, signUp, signInWithGoogle, redirectLoginResult, setRemember, resetPassword, logOut, deleteAccount,
   watchCollection, changeQuantity, savePrice, type User, type Collection, type Price, type Prices,
   loadLearned, saveLearned, clearLearned, type Learned,
-  TEACHER_UID, loadSharedLearned, saveSharedLearned, loadAllSharedLearned, clearSharedLearned,
+  EXAMPLES_PER_CARD, TEACHER_UID, loadSharedLearned, saveSharedLearned, loadAllSharedLearned, clearSharedLearned,
 } from './backend';
 import {
   normalizeCode, ligaUrl, imageUrl, SHOW_IMAGES, setOf, loadCatalog, colorsPt, colorKeys, type Catalog,
@@ -133,20 +133,20 @@ function Shell({ user }: { user: User }) {
     }, () => {});
   }, [teacher, tab]);
 
-  /** Remember how `code` looks in this player's camera (newest 4 examples per card). */
+  /** Remember how `code` looks in this player's camera (newest EXAMPLES_PER_CARD examples per card). */
   const learn = async (code: string, seen: Int8Array[], correctedFrom?: string) => {
     if (correctedFrom) setMessage(`Anotado! O scanner vai lembrar como a ${code} aparece na câmera${teacher ? ', e isso vale para todos os jogadores' : ''}. Ele aprendeu a aparência dessa carta — não uma troca de números —, então a ${correctedFrom} de verdade continua sendo reconhecida normalmente.`);
     const example = await exampleOf(seen, code);
     if (teacher) {
       // the teacher teaches everyone: straight into the shared base (the cached copy too, so it applies now)
       const set = setOf(code), base = await loadShared(set);
-      const list = [example, ...(base[code] ?? [])].slice(0, 4);
+      const list = [example, ...(base[code] ?? [])].slice(0, EXAMPLES_PER_CARD);
       base[code] = list;
       saveSharedLearned(set, code, list).catch((e) => setMessage(friendlyError(e)));
       return;
     }
     setLearned((prev) => {
-      const list = [example, ...(prev[code] ?? [])].slice(0, 4);
+      const list = [example, ...(prev[code] ?? [])].slice(0, EXAMPLES_PER_CARD);
       saveLearned(user.uid, code, list).catch((e) => setMessage(friendlyError(e)));
       return { ...prev, [code]: list };
     });
