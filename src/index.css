@@ -507,3 +507,16 @@ h2 { font-size: 17px; font-weight: 750; letter-spacing: -0.01em; }
 @media (hover: none) { .btn.primary:hover { background: var(--signal); border-color: var(--signal); } }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--ink-3); border-radius: 5px; border: 2px solid var(--ink); }
+
+/* − count + under a card in the deck and the pickers */
+.card-grid li { display: grid; gap: 6px; align-content: start; }
+.card-stepper {
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; height: 36px;
+  border-radius: 10px; background: var(--ink-2); border: 1px solid var(--line);
+}
+.card-stepper button { height: 100%; display: grid; place-items: center; color: var(--text); border-radius: 10px; }
+.card-stepper button svg { width: 18px; height: 18px; }
+.card-stepper button:disabled { color: var(--text-2); opacity: 0.4; cursor: default; }
+.card-stepper button:not(:disabled):active { background: var(--ink-3); }
+.card-stepper output { min-width: 22px; text-align: center; font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.sheet .card-stepper { background: var(--ink); }

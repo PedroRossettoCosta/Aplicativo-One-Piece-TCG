@@ -2,7 +2,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { imageUrl, SHOW_IMAGES, colorKeys, type Catalog } from './cards';
 import type { Price } from './backend';
-import { CloseIcon } from './icons';
+import { CloseIcon, PlusIcon, MinusIcon } from './icons';
 
 /** Card image, or — when images are switched off or fail — a block in the card's own colours. */
 export function CardArt({ code, info }: { code: string; info?: Catalog[string] }) {
@@ -32,6 +32,19 @@ export function CardFace({ code, info, count, missing = 0, wished = 0 }: {
       {missing > 0 && <span className="lack">{wished >= missing ? `${wished} nos desejos` : `faltam ${missing}`}</span>}
       {count != null && count > 0 && <span className="bubble">{count}</span>}
     </span>
+  );
+}
+
+/** − count + under a card: minus on the left, the chosen quantity in the middle, plus on the right. */
+export function CardStepper({ value, onMinus, onPlus, max = Infinity, name }: {
+  value: number; onMinus: () => void; onPlus: () => void; max?: number; name: string;
+}) {
+  return (
+    <div className="card-stepper" role="group" aria-label={`Quantidade de ${name}`}>
+      <button onClick={onMinus} disabled={value <= 0} aria-label={`Uma ${name} a menos`}><MinusIcon /></button>
+      <output aria-live="polite">{value}</output>
+      <button onClick={onPlus} disabled={value >= max} aria-label={`Uma ${name} a mais`}><PlusIcon /></button>
+    </div>
   );
 }
 

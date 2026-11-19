@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { ligaUrl, type Catalog } from './cards';
 import type { Collection, Prices } from './backend';
-import { CardFace, Sheet, PRICE_FIELDS, brl, ageLabel, daysSince, markPending } from './ui';
+import { CardFace, CardStepper, Sheet, PRICE_FIELDS, brl, ageLabel, daysSince, markPending } from './ui';
 import { FilterBar, NO_FILTERS, matches, type Filters } from './Filters';
 import { PlusIcon, MinusIcon, ExternalIcon, CheckIcon } from './icons';
 
@@ -128,14 +128,14 @@ export default function WishlistScreen({ wish, owned, prices, catalog, change, o
         </>
       )}
 
-      {adding && <AddWishSheet catalog={catalog} wish={wish} owned={owned} onAdd={(c) => change(c, 1)} onClose={() => setAdding(false)} />}
+      {adding && <AddWishSheet catalog={catalog} wish={wish} owned={owned} onAdd={(c) => change(c, 1)} onRemove={(c) => change(c, -1)} onClose={() => setAdding(false)} />}
     </main>
   );
 }
 
 /** Search the whole catalog and tap cards to want them (each tap = one more copy). */
-export function AddWishSheet({ catalog, wish, owned, onAdd, onClose }: {
-  catalog: Catalog; wish: Collection; owned: Collection; onAdd: (code: string) => void; onClose: () => void;
+export function AddWishSheet({ catalog, wish, owned, onAdd, onRemove, onClose }: {
+  catalog: Catalog; wish: Collection; owned: Collection; onAdd: (code: string) => void; onRemove: (code: string) => void; onClose: () => void;
 }) {
   const [f, setF] = useState<Filters>(NO_FILTERS);
   const [limit, setLimit] = useState(60);
@@ -144,7 +144,7 @@ export function AddWishSheet({ catalog, wish, owned, onAdd, onClose }: {
   return (
     <Sheet title="Adicionar à lista de desejos" onClose={onClose} wide>
       <FilterBar value={f} onChange={(v) => { setF(v); setLimit(60); }} pool={all} catalog={catalog} />
-      <p className="hint">Toque numa carta para adicionar uma cópia. {hits.length} {hits.length === 1 ? 'carta' : 'cartas'}.</p>
+      <p className="hint">Use − e + para escolher quantas cópias você quer. {hits.length} {hits.length === 1 ? 'carta' : 'cartas'}.</p>
       <ul className="card-grid">
         {hits.slice(0, limit).map((c) => (
           <li key={c}>
@@ -152,6 +152,7 @@ export function AddWishSheet({ catalog, wish, owned, onAdd, onClose }: {
               <CardFace code={c} info={catalog[c]} count={wish[c]} />
               <span className="grid-cap">{c}{owned[c] ? ` · tem ${owned[c]}` : ''}</span>
             </button>
+            <CardStepper value={wish[c] ?? 0} name={catalog[c].n} onMinus={() => onRemove(c)} onPlus={() => onAdd(c)} />
           </li>
         ))}
       </ul>

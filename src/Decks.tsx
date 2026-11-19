@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { ligaUrl, colorsPt, colorKeys, TYPE_PT, type Catalog } from './cards';
 import type { Collection } from './backend';
 import { checkDeck, deckCount, exportDeck, importDeck, fitsLeader, maxCopies, DECK_SIZE, BANNED, type Deck, type Decks } from './deck';
-import { CardFace, Sheet, markPending } from './ui';
+import { CardFace, CardStepper, Sheet, markPending } from './ui';
 import { FilterBar, NO_FILTERS, matches, type Filters } from './Filters';
 import { PlusIcon, MinusIcon, ExternalIcon, CopyIcon, ImportIcon, TrashIcon, BackIcon, WishIcon } from './icons';
 
@@ -109,6 +109,12 @@ function DeckEditor({ id, decks, owned, wish, catalog, save, addWish, notify, on
     if (qty <= 0) delete cards[code]; else cards[code] = qty;
     update({ cards });
   };
+  const addOne = (c: string) => {
+    const q = deck.cards[c] ?? 0;
+    if (q >= maxCopies(c, catalog)) return notify(`Máximo de ${maxCopies(c, catalog)} cópias de ${c}.`);
+    if (deckCount(deck) >= DECK_SIZE) notify(`O deck já tem ${DECK_SIZE} cartas.`);
+    setQty(c, q + 1);
+  };
 
   const issues = useMemo(() => checkDeck(deck, catalog), [deck, catalog]);
   const errors = issues.filter((i) => i.level === 'error');
@@ -189,6 +195,8 @@ function DeckEditor({ id, decks, owned, wish, catalog, save, addWish, notify, on
                   aria-label={`${catalog[c]?.n ?? c}, ${deck.cards[c]} no deck, você tem ${owned[c] ?? 0}`}>
                   <CardFace code={c} info={catalog[c]} count={deck.cards[c]} missing={missing[c] ?? 0} wished={wish[c] ?? 0} />
                 </button>
+                <CardStepper value={deck.cards[c]} max={maxCopies(c, catalog)} name={catalog[c]?.n ?? c}
+                  onMinus={() => setQty(c, deck.cards[c] - 1)} onPlus={() => addOne(c)} />
               </li>
             ))}
           </ul>
@@ -204,12 +212,7 @@ function DeckEditor({ id, decks, owned, wish, catalog, save, addWish, notify, on
       {adding === 'cards' && (
         <PickSheet title="Adicionar ao deck" catalog={catalog} owned={owned} counts={deck.cards}
           pool={Object.keys(catalog).filter((c) => fitsLeader(c, deck.leader, catalog) && maxCopies(c, catalog) > 0)}
-          onPick={(c) => {
-            const q = deck.cards[c] ?? 0;
-            if (q >= maxCopies(c, catalog)) return notify(`Máximo de ${maxCopies(c, catalog)} cópias de ${c}.`);
-            if (n >= DECK_SIZE) notify(`O deck já tem ${DECK_SIZE} cartas.`);
-            setQty(c, q + 1);
-          }}
+          onPick={addOne} onRemove={(c) => setQty(c, (deck.cards[c] ?? 0) - 1)} maxOf={(c) => maxCopies(c, catalog)}
           onClose={() => setAdding(null)} />
       )}
       {open && (
@@ -225,9 +228,9 @@ function DeckEditor({ id, decks, owned, wish, catalog, save, addWish, notify, on
 }
 
 /** Catalog search with filters; each tap picks a card (adds one copy, or sets the leader). */
-function PickSheet({ title, pool, catalog, owned, counts = {}, leaderMode = false, onPick, onClose }: {
+function PickSheet({ title, pool, catalog, owned, counts = {}, leaderMode = false, onPick, onRemove, maxOf, onClose }: {
   title: string; pool: string[]; catalog: Catalog; owned: Collection; counts?: Record<string, number>;
-  leaderMode?: boolean; onPick: (code: string) => void; onClose: () => void;
+  leaderMode?: boolean; onPick: (code: string) => void; onRemove?: (code: string) => void; maxOf?: (code: string) => number; onClose: () => void;
 }) {
   const [f, setF] = useState<Filters>(NO_FILTERS);
   const [limit, setLimit] = useState(60);
@@ -242,7 +245,7 @@ function PickSheet({ title, pool, catalog, owned, counts = {}, leaderMode = fals
         <span>Só cartas que eu tenho</span>
       </label>
       <p className="hint">
-        {leaderMode ? 'Toque no líder.' : 'Toque para pôr uma cópia; o número no canto é quantas o deck tem. Só aparecem cartas da cor do líder.'}
+        {leaderMode ? 'Toque no líder.' : 'Use − e + para escolher quantas cópias vão no deck. Só aparecem cartas da cor do líder.'}
         {' '}{hits.length} {hits.length === 1 ? 'carta' : 'cartas'}.
       </p>
       <ul className="card-grid">
@@ -252,6 +255,9 @@ function PickSheet({ title, pool, catalog, owned, counts = {}, leaderMode = fals
               <CardFace code={c} info={catalog[c]} count={counts[c]} />
               <span className="grid-cap">{c}{owned[c] ? ` · tem ${owned[c]}` : ''}</span>
             </button>
+            {onRemove && (
+              <CardStepper value={counts[c] ?? 0} max={maxOf?.(c)} name={catalog[c].n} onMinus={() => onRemove(c)} onPlus={() => onPick(c)} />
+            )}
           </li>
         ))}
       </ul>
