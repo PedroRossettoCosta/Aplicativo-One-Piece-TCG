@@ -90,6 +90,46 @@ export function Sheet({ title, onClose, children, wide = false }: { title: strin
 
 export const PRICE_FIELDS = [['min', 'Menor'], ['avg', 'Médio'], ['max', 'Maior']] as const;
 export const brl = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+/** Which Liga column sums count with (this device only, shared by the collection and the wishlist). */
+export type Basis = 'min' | 'avg' | 'max';
+export const loadPref = <T,>(k: string, fallback: T): T => { try { return JSON.parse(localStorage.getItem(k) ?? 'null') ?? fallback; } catch { return fallback; } };
+export const storePref = (k: string, v: unknown) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage blocked */ } };
+export const BASIS_KEY = 'wishBasis';
+/** Price of one copy in the chosen column, falling back to whatever the player noted. */
+export const unitPrice = (p: Price | undefined, basis: Basis) => p?.[basis] ?? p?.avg ?? p?.min ?? p?.max;
+export const basisLabel = (basis: Basis) => PRICE_FIELDS.find(([k]) => k === basis)![1].toLowerCase();
+
+/** Sum of copies × unit price; cards with no noted price are counted apart. */
+export function sumPrices(codes: string[], qty: Record<string, number>, prices: Record<string, Price>, basis: Basis) {
+  let total = 0, missing = 0, copies = 0;
+  for (const c of codes) {
+    const unit = unitPrice(prices[c], basis);
+    copies += qty[c] ?? 0;
+    if (unit == null) missing++; else total += unit * (qty[c] ?? 0);
+  }
+  return { total, missing, copies };
+}
+
+/** Menor / Médio / Maior. */
+export function BasisPicker({ value, onChange }: { value: Basis; onChange: (b: Basis) => void }) {
+  return (
+    <div className="segmented" role="radiogroup" aria-label="Somar pelo preço">
+      {PRICE_FIELDS.map(([k, label]) => (
+        <button key={k} role="radio" aria-checked={value === k} className={value === k ? 'on' : ''} onClick={() => onChange(k)}>{label}</button>
+      ))}
+    </div>
+  );
+}
+
+/** On/off switch with a label, e.g. "Calcular". */
+export function Toggle({ on, onChange, label }: { on: boolean; onChange: (on: boolean) => void; label: string }) {
+  return (
+    <button className={`toggle${on ? ' on' : ''}`} role="switch" aria-checked={on} onClick={() => onChange(!on)}>
+      <span className="toggle-track"><span className="toggle-thumb" /></span>{label}
+    </button>
+  );
+}
 /** "1.450,00" / "R$ 145" / "145.5" → number, or undefined when empty/invalid. */
 function parseBrl(s: string): number | undefined {
   let t = s.replace(/[R$\s]/g, '');

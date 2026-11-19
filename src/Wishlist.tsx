@@ -3,14 +3,14 @@
 import { useMemo, useState } from 'react';
 import { ligaUrl, baseOf, byPrint, type Catalog } from './cards';
 import type { Collection, Prices } from './backend';
-import { CardFace, CardStepper, Sheet, PRICE_FIELDS, brl, ageLabel, daysSince, markPending } from './ui';
+import {
+  CardFace, CardStepper, Sheet, brl, ageLabel, daysSince, markPending,
+  BasisPicker, Toggle, loadPref as load, storePref as store, BASIS_KEY, unitPrice, basisLabel, sumPrices, type Basis,
+} from './ui';
 import { FilterBar, NO_FILTERS, matches, type Filters } from './Filters';
 import { PlusIcon, MinusIcon, ExternalIcon, CheckIcon } from './icons';
 
-type Basis = 'min' | 'avg' | 'max';
-const PICK_KEY = 'wishPicked', BASIS_KEY = 'wishBasis';
-const load = <T,>(k: string, fallback: T): T => { try { return JSON.parse(localStorage.getItem(k) ?? 'null') ?? fallback; } catch { return fallback; } };
-const store = (k: string, v: unknown) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage blocked */ } };
+const PICK_KEY = 'wishPicked', CALC_KEY = 'wishCalc';
 
 export default function WishlistScreen({ wish, owned, prices, catalog, change, onPrice, onBought }: {
   wish: Collection; owned: Collection; prices: Prices; catalog: Catalog;
@@ -22,20 +22,12 @@ export default function WishlistScreen({ wish, owned, prices, catalog, change, o
   const [picked, setPicked] = useState<string[]>(() => load(PICK_KEY, []));
   const [basis, setBasis] = useState<Basis>(() => load(BASIS_KEY, 'avg'));
   const [adding, setAdding] = useState(false);
+  // "Calcular" off hides the ticks, the price column picker and the total bar: just the list
+  const [calc, setCalc] = useState<boolean>(() => load(CALC_KEY, true));
   const pick = (next: string[]) => { setPicked(next); store(PICK_KEY, next); };
   const chosen = picked.filter((c) => wish[c]);
 
-  const sum = (list: string[]) => {
-    let total = 0, missing = 0, copies = 0;
-    for (const c of list) {
-      const unit = prices[c]?.[basis] ?? prices[c]?.avg ?? prices[c]?.min ?? prices[c]?.max;
-      copies += wish[c];
-      if (unit == null) missing++; else total += unit * wish[c];
-    }
-    return { total, missing, copies };
-  };
-  const now = sum(chosen), all = sum(codes);
-  const basisLabel = PRICE_FIELDS.find(([k]) => k === basis)![1].toLowerCase();
+  const now = sumPrices(chosen, wish, prices, basis), all = sumPrices(codes, wish, prices, basis);
 
   return (
     <main className="wishlist">
@@ -56,26 +48,26 @@ export default function WishlistScreen({ wish, owned, prices, catalog, change, o
       ) : (
         <>
           <div className="wish-tools">
-            <div className="segmented" role="radiogroup" aria-label="Somar pelo preço">
-              {PRICE_FIELDS.map(([k, label]) => (
-                <button key={k} role="radio" aria-checked={basis === k} className={basis === k ? 'on' : ''}
-                  onClick={() => { setBasis(k); store(BASIS_KEY, k); }}>{label}</button>
-              ))}
-            </div>
+            <Toggle on={calc} onChange={(v) => { setCalc(v); store(CALC_KEY, v); }} label="Calcular" />
             <button className="btn small" onClick={() => setAdding(true)}><PlusIcon /> Adicionar</button>
           </div>
-          <p className="hint pad">Marque o que vai comprar agora. A soma usa o preço <strong>{basisLabel}</strong> que você anotou da Liga.</p>
+          {calc && (
+            <div className="calc-tools">
+              <BasisPicker value={basis} onChange={(k) => { setBasis(k); store(BASIS_KEY, k); }} />
+              <p className="hint">Marque o que vai comprar agora. A soma usa o preço <strong>{basisLabel(basis)}</strong> que você anotou da Liga.</p>
+            </div>
+          )}
 
-          <ul className="wish-list">
+          <ul className={`wish-list${calc ? '' : ' plain'}`}>
             {codes.map((code) => {
               const info = catalog[code], p = prices[code], on = chosen.includes(code);
-              const unit = p?.[basis] ?? p?.avg ?? p?.min ?? p?.max;
+              const unit = unitPrice(p, basis);
               return (
-                <li key={code} className={`wish-row${on ? ' on' : ''}`}>
-                  <button className="pick" role="checkbox" aria-checked={on} aria-label={`Comprar agora: ${info?.n ?? code}`}
+                <li key={code} className={`wish-row${on && calc ? ' on' : ''}`}>
+                  {calc && <button className="pick" role="checkbox" aria-checked={on} aria-label={`Comprar agora: ${info?.n ?? code}`}
                     onClick={() => pick(on ? chosen.filter((c) => c !== code) : [...chosen, code])}>
                     <span className="box">{on && <CheckIcon />}</span>
-                  </button>
+                  </button>}
                   <span className="wish-art"><CardFace code={code} info={info} count={wish[code]} /></span>
                   <div className="wish-info">
                     <p className="tile-name">{info?.n ?? code}</p>
@@ -107,7 +99,7 @@ export default function WishlistScreen({ wish, owned, prices, catalog, change, o
             })}
           </ul>
 
-          <div className="buy-bar" aria-live="polite">
+          {calc && <div className="buy-bar" aria-live="polite">
             <div>
               <p className="buy-total">{!chosen.length ? 'Nada marcado' : now.missing === chosen.length ? 'Sem preço anotado' : brl(now.total)}</p>
               <p className="hint">
@@ -125,7 +117,7 @@ export default function WishlistScreen({ wish, owned, prices, catalog, change, o
             ) : (
               <button className="btn" onClick={() => pick(codes)}>Marcar todas</button>
             )}
-          </div>
+          </div>}
         </>
       )}
 

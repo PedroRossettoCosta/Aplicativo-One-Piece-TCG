@@ -9,9 +9,12 @@ import {
   normalizeCode, ligaUrl, imageUrl, SHOW_IMAGES, setOf, loadCatalog, colorsPt, colorKeys, baseOf, byPrint, perCode, type Catalog,
 } from './cards';
 import Scanner, { exampleOf } from './Scanner';
-import { CardArt, CardFace, CardStepper, PrintPicker, Sheet, PRICE_FIELDS, brl, daysSince, ageLabel, markPending, readPending, clearPending, PriceSheet } from './ui';
+import {
+  CardArt, CardFace, CardStepper, PrintPicker, Sheet, PRICE_FIELDS, brl, daysSince, ageLabel, markPending, readPending, clearPending, PriceSheet,
+  BasisPicker, Toggle, loadPref, storePref, BASIS_KEY, unitPrice, basisLabel, sumPrices, type Basis,
+} from './ui';
 import { preloadOcr } from './ocr';
-import { ScanIcon, ShelfIcon, UserIcon, PlusIcon, MinusIcon, CloseIcon, ExternalIcon, WishIcon, DecksIcon } from './icons';
+import { ScanIcon, ShelfIcon, UserIcon, PlusIcon, MinusIcon, CloseIcon, ExternalIcon, WishIcon, DecksIcon, CheckIcon } from './icons';
 import WishlistScreen from './Wishlist';
 import DecksScreen from './Decks';
 import type { Decks } from './deck';
@@ -222,19 +225,19 @@ function Shell({ user }: { user: User }) {
 
       <nav className="tabbar" aria-label="Navegação">
         <button className={tab === 'colecao' ? 'on' : ''} onClick={() => setTab('colecao')} aria-current={tab === 'colecao' ? 'page' : undefined}>
-          <ShelfIcon /><span>Coleção</span>
+          <ShelfIcon filled={tab === 'colecao'} /><span>Coleção</span>
         </button>
         <button className={tab === 'desejos' ? 'on' : ''} onClick={() => setTab('desejos')} aria-current={tab === 'desejos' ? 'page' : undefined}>
-          <WishIcon /><span>Desejos</span>
+          <WishIcon filled={tab === 'desejos'} /><span>Desejos</span>
         </button>
         <button className="scan" onClick={() => setScanning(true)} aria-label="Escanear carta">
           <ScanIcon />
         </button>
         <button className={tab === 'decks' ? 'on' : ''} onClick={() => setTab('decks')} aria-current={tab === 'decks' ? 'page' : undefined}>
-          <DecksIcon /><span>Decks</span>
+          <DecksIcon filled={tab === 'decks'} /><span>Decks</span>
         </button>
         <button className={tab === 'conta' ? 'on' : ''} onClick={() => setTab('conta')} aria-current={tab === 'conta' ? 'page' : undefined}>
-          <UserIcon /><span>Conta</span>
+          <UserIcon filled={tab === 'conta'} /><span>Conta</span>
         </button>
       </nav>
 
@@ -298,17 +301,37 @@ function CollectionScreen({ cards, prices, catalog, focus, setFocus, change, tot
 
   const focusedRow = rows.findIndex((r) => focus && r.codes.includes(focus));
 
+  // "Calcular": tap cards to mark them and read what they are worth (nothing marked = everything shown)
+  const [basis, setBasis] = useState<Basis>(() => loadPref(BASIS_KEY, 'avg'));
+  const [calc, setCalc] = useState<boolean>(() => loadPref('collectionCalc', false));
+  const [marked, setMarked] = useState<string[]>([]);
+  const shownCodes = rows.flatMap((r) => r.codes);
+  const chosen = marked.filter((c) => cards[c]);
+  const everything = sumPrices(codes, cards, prices, basis);
+  const sel = sumPrices(chosen.length ? chosen : shownCodes, cards, prices, basis);
+  const toggleCalc = (v: boolean) => { setCalc(v); storePref('collectionCalc', v); setMarked([]); if (v) setFocus(null); };
+
   return (
-    <main className="collection">
+    <main className={`collection${calc ? ' calculating' : ''}`}>
       <header className="top">
         <h1>Minha coleção</h1>
         <p className="totals">
           <strong>{codes.length}</strong> diferentes · <strong>{total}</strong> no total
+          {everything.total > 0 && <> · vale <strong>{brl(everything.total)}</strong></>}
         </p>
       </header>
 
       {codes.length > 0 && (
         <FilterBar value={filters} onChange={(f) => { setFilters(f); setFocus(null); }} pool={codes} catalog={catalog} />
+      )}
+      {codes.length > 0 && (
+        <div className="calc-tools">
+          <div className="calc-row">
+            <Toggle on={calc} onChange={toggleCalc} label="Calcular valor" />
+            {calc && <BasisPicker value={basis} onChange={(k) => { setBasis(k); storePref(BASIS_KEY, k); }} />}
+          </div>
+          {calc && <p className="hint">Toque nas cartas para somar só elas. Sem nada marcado, soma tudo o que aparece, pelo preço <strong>{basisLabel(basis)}</strong> que você anotou da Liga.</p>}
+        </div>
       )}
       {filtering && <p className="hint pad">{shown ? `${shown} ${shown === 1 ? 'carta' : 'cartas'} encontradas` : 'Nenhuma carta da sua coleção passa nesses filtros.'}</p>}
 
@@ -327,9 +350,10 @@ function CollectionScreen({ cards, prices, catalog, focus, setFocus, change, tot
               {row.title}
               {row.set && catalog[row.codes[0]] && <span className="set-name"> · {catalog[row.codes[0]].s}</span>}
             </h2>
-            {row.set && setSizes[row.set] && !filtering ? (
-              <span className="completion">{new Set(row.codes.map(baseOf)).size} de {setSizes[row.set]}</span>
-            ) : filtering ? <span className="completion">{row.codes.length}</span> : null}
+            <span className="completion">
+              {row.set && setSizes[row.set] && !filtering ? `${new Set(row.codes.map(baseOf)).size} de ${setSizes[row.set]}` : filtering ? row.codes.length : null}
+              {calc && <SetValue value={sumPrices(row.codes, cards, prices, basis).total} />}
+            </span>
           </div>
           {row.codes.length === 0 ? (
             <p className="no-results">Nenhuma carta da sua coleção corresponde à busca.</p>
@@ -337,19 +361,40 @@ function CollectionScreen({ cards, prices, catalog, focus, setFocus, change, tot
             <ul className="rail">
               {row.codes.map((code) => (
                 <Tile key={code} code={code} qty={cards[code]} info={catalog[code]} price={prices[code]} catalog={catalog} cards={cards}
-                  focused={focus === code} onToggle={() => setFocus(focus === code ? null : code)}
+                  unit={unitPrice(prices[code], basis)} marked={calc ? chosen.includes(code) : undefined}
+                  focused={!calc && focus === code}
+                  onToggle={() => calc
+                    ? setMarked(chosen.includes(code) ? chosen.filter((c) => c !== code) : [...chosen, code])
+                    : setFocus(focus === code ? null : code)}
                   change={change} onPrice={() => onPrice(code)} />
               ))}
             </ul>
           )}
         </section>
       ))}
+
+      {calc && (
+        <div className="buy-bar" aria-live="polite">
+          <div>
+            <p className="buy-total">{sel.missing === (chosen.length || shownCodes.length) ? 'Sem preço anotado' : brl(sel.total)}</p>
+            <p className="hint">
+              {chosen.length
+                ? `${sel.copies} ${sel.copies === 1 ? 'cópia marcada' : 'cópias marcadas'}`
+                : `${filtering ? 'Cartas filtradas' : 'Coleção toda'}: ${sel.copies} ${sel.copies === 1 ? 'cópia' : 'cópias'}`}
+              {sel.missing ? ` · ${sel.missing} sem preço anotado` : ''}
+            </p>
+          </div>
+          {chosen.length > 0 && <button className="btn" onClick={() => setMarked([])}>Desmarcar</button>}
+        </div>
+      )}
     </main>
   );
 }
 
-function Tile({ code, qty, info, price, focused, onToggle, change, onPrice, catalog, cards }: {
-  code: string; qty: number; info?: Catalog[string]; price?: Price; focused: boolean; catalog: Catalog; cards: Collection;
+const SetValue = ({ value }: { value: number }) => (value > 0 ? <span className="set-value"> · {brl(value)}</span> : null);
+
+function Tile({ code, qty, info, price, unit, marked, focused, onToggle, change, onPrice, catalog, cards }: {
+  code: string; qty: number; info?: Catalog[string]; price?: Price; unit?: number; marked?: boolean; focused: boolean; catalog: Catalog; cards: Collection;
   onToggle: () => void; change: (code: string, delta: number) => void; onPrice: () => void;
 }) {
   const ref = useRef<HTMLLIElement>(null);
@@ -359,11 +404,18 @@ function Tile({ code, qty, info, price, focused, onToggle, change, onPrice, cata
   }, [focused]);
 
   return (
-    <li ref={ref} className={`tile${focused ? ' focus' : ''}`}>
-      <button className="tile-art" onClick={onToggle} aria-expanded={focused}
-        aria-label={`${info?.n ?? code}, ${qty} ${qty === 1 ? 'cópia' : 'cópias'}`}>
+    <li ref={ref} className={`tile${focused ? ' focus' : ''}${marked ? ' marked' : ''}`}>
+      <button className="tile-art" onClick={onToggle}
+        {...(marked === undefined ? { 'aria-expanded': focused } : { role: 'checkbox', 'aria-checked': marked })}
+        aria-label={`${info?.n ?? code}, ${qty} ${qty === 1 ? 'cópia' : 'cópias'}${unit != null ? `, ${brl(unit)} cada` : ''}`}>
         <CardFace code={code} info={info} count={focused ? undefined : qty} />
+        {marked && <span className="mark"><CheckIcon /></span>}
       </button>
+      {!focused && (
+        <span className={`tile-price${unit == null ? ' none' : ''}`}>
+          {unit == null ? (marked !== undefined ? 'sem preço' : '') : qty > 1 && marked !== undefined ? `${qty} × ${brl(unit)}` : brl(unit)}
+        </span>
+      )}
       {focused && (
         <div className="tile-info">
           <p className="tile-name">{info?.n ?? code}</p>

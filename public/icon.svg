@@ -1,1 +1,39 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="96" fill="#16181d"/><rect x="146" y="96" width="220" height="320" rx="20" fill="none" stroke="#e0352b" stroke-width="24"/><text x="256" y="290" text-anchor="middle" font-family="system-ui,sans-serif" font-size="110" font-weight="700" fill="#e0352b">OP</text></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="38%" r="75%">
+      <stop offset="0" stop-color="#e3342b"/>
+      <stop offset="0.55" stop-color="#b3201a"/>
+      <stop offset="1" stop-color="#5e0f0c"/>
+    </radialGradient>
+    <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#ecebe8"/>
+    </linearGradient>
+    <filter id="sh" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#2a0705" flood-opacity="0.55"/>
+    </filter>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <!-- fanned cards -->
+  <g filter="url(#sh)">
+    <rect x="176" y="118" width="170" height="238" rx="18" fill="#16181d" transform="rotate(-14 261 237)"/>
+    <rect x="176" y="118" width="170" height="238" rx="18" fill="#2a2d35" transform="rotate(-4 261 237)"/>
+    <g transform="rotate(8 261 237)">
+      <rect x="176" y="118" width="170" height="238" rx="18" fill="url(#face)"/>
+      <rect x="192" y="134" width="138" height="132" rx="10" fill="#16181d"/>
+      <circle cx="261" cy="200" r="38" fill="none" stroke="#e3342b" stroke-width="12"/>
+      <path d="M261 162v76M223 200h76" stroke="#e3342b" stroke-width="8" stroke-linecap="round"/>
+      <circle cx="261" cy="200" r="11" fill="#e3342b"/>
+      <rect x="192" y="282" width="96" height="12" rx="6" fill="#16181d"/>
+      <rect x="192" y="304" width="64" height="10" rx="5" fill="#a9a8a4"/>
+      <rect x="290" y="324" width="40" height="14" rx="7" fill="#e3342b"/>
+    </g>
+  </g>
+  <!-- scan corners -->
+  <g fill="none" stroke="#ffffff" stroke-width="20" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M96 156V122a26 26 0 0 1 26-26h34"/>
+    <path d="M356 96h34a26 26 0 0 1 26 26v34"/>
+    <path d="M416 356v34a26 26 0 0 1-26 26h-34"/>
+    <path d="M156 416h-34a26 26 0 0 1-26-26v-34"/>
+  </g>
+</svg>

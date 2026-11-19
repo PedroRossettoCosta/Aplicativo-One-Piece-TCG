@@ -432,6 +432,8 @@ h2 { font-size: 17px; font-weight: 750; letter-spacing: -0.01em; }
 .wish-list { list-style: none; display: grid; gap: 2px; padding: 8px 0 calc(110px + env(safe-area-inset-bottom)); }
 .wish-row { display: grid; grid-template-columns: 44px 76px 1fr; gap: 10px; align-items: start; padding: 12px var(--pad) 12px 8px; transition: background-color 200ms var(--ease); }
 .wish-row.on { background: var(--signal-soft); }
+.wish-list.plain { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+.wish-list.plain .wish-row { grid-template-columns: 76px 1fr; padding-left: var(--pad); }
 .pick { width: 44px; height: 44px; display: grid; place-items: center; margin-top: 24px; }
 .pick .box { width: 24px; height: 24px; border-radius: 7px; border: 2px solid var(--line); display: grid; place-items: center; background: var(--ink-2); }
 .wish-row.on .pick .box { background: var(--signal); border-color: var(--signal); color: var(--signal-ink); }
@@ -456,6 +458,10 @@ h2 { font-size: 17px; font-weight: 750; letter-spacing: -0.01em; }
 .deck-list { list-style: none; display: grid; gap: 10px; padding: 4px var(--pad); }
 .deck-row { width: 100%; display: grid; grid-template-columns: 64px 1fr; gap: 14px; align-items: center; padding: 10px; border-radius: 14px; background: var(--ink-2); border: 1px solid var(--line); text-align: left; }
 .deck-row:active { transform: scale(0.99); }
+.deck-item { position: relative; }
+.deck-item .deck-row { padding-right: 54px; }
+.deck-row-delete { position: absolute; top: 50%; right: 6px; transform: translateY(-50%); color: var(--text-2); }
+.deck-row-delete:hover { color: var(--danger); }
 .deck-leader { width: 64px; }
 .deck-row-info { display: grid; gap: 3px; min-width: 0; }
 .deck-row-stats { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; font-weight: 650; color: var(--text-2); font-variant-numeric: tabular-nums; }
@@ -530,3 +536,20 @@ h2 { font-size: 17px; font-weight: 750; letter-spacing: -0.01em; }
 .print.on .art { outline-color: var(--signal); }
 .print.on span { color: var(--text); font-weight: 700; }
 .print-label { color: var(--signal-text); font-weight: 650; }
+
+/* ---------- prices on the shelf and the "Calcular" mode ---------- */
+.tile-price { min-height: 18px; margin-top: -6px; font-size: 13px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile-price.none { color: var(--text-2); font-weight: 500; }
+.tile.marked .art { outline: 2px solid var(--signal); outline-offset: 2px; }
+.mark { position: absolute; top: 5px; left: 5px; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--signal); color: var(--signal-ink); box-shadow: 0 2px 6px var(--shadow); }
+.set-value { color: var(--signal-text); }
+.calc-tools { display: grid; gap: 8px; padding: 0 var(--pad) 8px; }
+.calc-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.collection.calculating { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
+
+.toggle { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; font-size: 15px; font-weight: 650; color: var(--text-2); }
+.toggle.on { color: var(--text); }
+.toggle-track { position: relative; width: 44px; height: 26px; border-radius: 13px; background: var(--ink-3); border: 1px solid var(--line); transition: background-color 200ms var(--ease); }
+.toggle-thumb { position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: var(--text-2); transition: transform 200ms var(--ease), background-color 200ms var(--ease); }
+.toggle.on .toggle-track { background: var(--signal); border-color: var(--signal); }
+.toggle.on .toggle-thumb { transform: translateX(18px); background: #fff; }

@@ -47,7 +47,7 @@ export default function DecksScreen(props: Props) {
     <main className="decks">
       <header className="top">
         <h1>Decks</h1>
-        <p className="totals"><strong>{ids.length}</strong> {ids.length === 1 ? 'deck' : 'decks'} planejados</p>
+        <p className="totals"><strong>{ids.length}</strong> {ids.length === 1 ? 'deck planejado' : 'decks planejados'}</p>
       </header>
       <div className="deck-tools">
         <button className="btn primary" onClick={() => create({ name: `Deck ${ids.length + 1}`, cards: {} })}><PlusIcon /> Novo deck</button>
@@ -65,7 +65,7 @@ export default function DecksScreen(props: Props) {
             const d = decks[id], n = deckCount(d), errors = checkDeck(d, catalog).filter((i) => i.level === 'error');
             const lacking = sumOf(missingOf(d, owned)), L = d.leader ? catalog[d.leader] : undefined;
             return (
-              <li key={id}>
+              <li key={id} className="deck-item">
                 <button className="deck-row" onClick={() => setOpenId(id)}>
                   <span className="deck-leader">{d.leader ? <CardFace code={d.leader} info={L} /> : <span className="art empty-slot" />}</span>
                   <span className="deck-row-info">
@@ -81,6 +81,8 @@ export default function DecksScreen(props: Props) {
                     </span>
                   </span>
                 </button>
+                <button className="icon-btn deck-row-delete" aria-label={`Apagar o deck ${d.name}`}
+                  onClick={() => { if (confirm(`Apagar o deck “${d.name}”?`)) save(id, null); }}><TrashIcon /></button>
               </li>
             );
           })}
