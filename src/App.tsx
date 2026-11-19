@@ -12,6 +12,19 @@ import Scanner, { exampleOf } from './Scanner';
 import { preloadOcr } from './ocr';
 import { SearchIcon, ScanIcon, ShelfIcon, UserIcon, PlusIcon, MinusIcon, CloseIcon, ExternalIcon } from './icons';
 
+// Phones (iOS especially) keep the page height when the keyboard opens and simply cover the bottom of the
+// screen. Track the area that is still visible so bottom sheets sit right above the keyboard.
+if (typeof window !== 'undefined' && window.visualViewport) {
+  const vv = window.visualViewport;
+  const sync = () => {
+    document.documentElement.style.setProperty('--vv-top', `${vv.offsetTop}px`);
+    document.documentElement.style.setProperty('--vv-h', `${vv.height}px`);
+  };
+  vv.addEventListener('resize', sync);
+  vv.addEventListener('scroll', sync);
+  sync();
+}
+
 export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined);
   useEffect(() => onUserChange(setUser), []);
