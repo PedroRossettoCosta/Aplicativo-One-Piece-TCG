@@ -520,3 +520,13 @@ h2 { font-size: 17px; font-weight: 750; letter-spacing: -0.01em; }
 .card-stepper button:not(:disabled):active { background: var(--ink-3); }
 .card-stepper output { min-width: 22px; text-align: center; font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .sheet .card-stepper { background: var(--ink); }
+
+/* which print of a card: a scrollable row of small cards with their names */
+.prints { display: flex; gap: 10px; overflow-x: auto; padding: 2px 2px 6px; scrollbar-width: none; }
+.prints::-webkit-scrollbar { display: none; }
+.print { flex: none; width: 72px; display: grid; gap: 4px; text-align: center; border-radius: 8px; }
+.print span { font-size: 11px; line-height: 1.2; color: var(--text-2); }
+.print .art { outline: 2px solid transparent; outline-offset: 2px; transition: outline-color 160ms var(--ease); }
+.print.on .art { outline-color: var(--signal); }
+.print.on span { color: var(--text); font-weight: 700; }
+.print-label { color: var(--signal-text); font-weight: 650; }

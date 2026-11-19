@@ -205,13 +205,13 @@ function DeckEditor({ id, decks, owned, wish, catalog, save, addWish, notify, on
 
       {adding === 'leader' && (
         <PickSheet title="Escolher líder" catalog={catalog} owned={owned} leaderMode
-          pool={Object.keys(catalog).filter((c) => catalog[c].t === 'Leader' && !BANNED.includes(c))}
+          pool={Object.keys(catalog).filter((c) => !catalog[c].b && catalog[c].t === 'Leader' && !BANNED.includes(c))}
           onPick={(c) => { update({ leader: c }); setAdding(Object.keys(deck.cards).length ? null : 'cards'); }}
           onClose={() => setAdding(null)} />
       )}
       {adding === 'cards' && (
         <PickSheet title="Adicionar ao deck" catalog={catalog} owned={owned} counts={deck.cards}
-          pool={Object.keys(catalog).filter((c) => fitsLeader(c, deck.leader, catalog) && maxCopies(c, catalog) > 0)}
+          pool={Object.keys(catalog).filter((c) => !catalog[c].b && fitsLeader(c, deck.leader, catalog) && maxCopies(c, catalog) > 0)}
           onPick={addOne} onRemove={(c) => setQty(c, (deck.cards[c] ?? 0) - 1)} maxOf={(c) => maxCopies(c, catalog)}
           onClose={() => setAdding(null)} />
       )}

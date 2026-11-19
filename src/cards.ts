@@ -92,8 +92,9 @@ export function similarCodes(code: string, known: (c: string) => boolean, max = 
 export const setOf = (code: string) => code.split('-')[0];
 
 // TODO: confirm this search URL works on ligaonepiece.com.br (it can't be checked automatically).
+/** Liga lists every print of a card on the card's page, so alternative prints link to their code. */
 export const ligaUrl = (code: string) =>
-  `https://www.ligaonepiece.com.br/?view=cards/search&card=${encodeURIComponent(code)}`;
+  `https://www.ligaonepiece.com.br/?view=cards/search&card=${encodeURIComponent(code.split('_')[0])}`;
 
 /**
  * Card art = Bandai's "SAMPLE"-watermarked images, mirrored by optcgapi.com (bandai's own server blocks
@@ -111,12 +112,36 @@ export type CardInfo = {
   n: string; c: string; r: string; t: string; s: string;
   k?: number; p?: number; ct?: number; l?: number; a?: string; tr?: string[];
   u?: 1; lr?: { maxCost?: number; eventMaxCost?: number };
+  /** alternative prints in catalog.json: version id → label */
+  v?: Record<string, string>;
+  /** set on an alternative print's own entry ("OP01-120_p2"): the normal card's code and the print's label */
+  b?: string; vl?: string;
 };
 export type Catalog = Record<string, CardInfo>;
 
 let catalog: Promise<Catalog> | undefined;
+/**
+ * The catalog, with every alternative print as its own entry ("OP01-120_p2" → the card's data + b/vl), so the
+ * collection, wishlist and prices can count each print separately while rules use the normal code.
+ */
 export const loadCatalog = () =>
-  (catalog ??= fetch('/catalog.json').then((r) => (r.ok ? r.json() : {})).catch(() => ({})));
+  (catalog ??= fetch('/catalog.json').then((r) => (r.ok ? r.json() : {})).catch(() => ({})).then((cat: Catalog) => {
+    for (const [code, info] of Object.entries(cat))
+      for (const [vid, label] of Object.entries(info.v ?? {})) cat[`${code}_${vid}`] = { ...info, v: undefined, b: code, vl: label };
+    return cat;
+  }));
+/** "OP01-120_p2" → "OP01-120" (a normal code stays as is). */
+export const baseOf = (id: string) => id.split('_')[0];
+/** Normal prints first, then each card's alternative prints. */
+export const byPrint = (a: string, b: string) => baseOf(a).localeCompare(baseOf(b)) || (a.includes('_') ? 1 : 0) - (b.includes('_') ? 1 : 0) || a.localeCompare(b);
+/** Every print of a card: the normal one first. */
+export const printsOf = (code: string, cat: Catalog) => [code, ...Object.keys(cat[code]?.v ?? {}).map((v) => `${code}_${v}`)];
+/** Adds up quantities per card code across its prints ({ "OP01-120": 1, "OP01-120_p2": 1 } → { "OP01-120": 2 }). */
+export function perCode(list: Record<string, number>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [id, q] of Object.entries(list)) out[baseOf(id)] = (out[baseOf(id)] ?? 0) + q;
+  return out;
+}
 
 const COLOR_PT: Record<string, string> = {
   Red: 'Vermelho', Green: 'Verde', Blue: 'Azul', Purple: 'Roxo', Black: 'Preto', Yellow: 'Amarelo',

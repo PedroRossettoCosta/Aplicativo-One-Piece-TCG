@@ -1,6 +1,6 @@
 // Pieces shared by every screen: card art with its count bubble, sheets, noted Liga prices.
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { imageUrl, SHOW_IMAGES, colorKeys, type Catalog } from './cards';
+import { imageUrl, SHOW_IMAGES, colorKeys, printsOf, type Catalog } from './cards';
 import type { Price } from './backend';
 import { CloseIcon, PlusIcon, MinusIcon } from './icons';
 
@@ -44,6 +44,24 @@ export function CardStepper({ value, onMinus, onPlus, max = Infinity, name }: {
       <button onClick={onMinus} disabled={value <= 0} aria-label={`Uma ${name} a menos`}><MinusIcon /></button>
       <output aria-live="polite">{value}</output>
       <button onClick={onPlus} disabled={value >= max} aria-label={`Uma ${name} a mais`}><PlusIcon /></button>
+    </div>
+  );
+}
+
+/** Which print of a card (normal or an alternative art): small thumbnails with their names. */
+export function PrintPicker({ code, catalog, value, onChange, counts }: {
+  code: string; catalog: Catalog; value: string; onChange: (id: string) => void; counts?: Record<string, number>;
+}) {
+  const prints = printsOf(code, catalog);
+  if (prints.length < 2) return null;
+  return (
+    <div className="prints" role="radiogroup" aria-label="Versão da carta">
+      {prints.map((id) => (
+        <button key={id} role="radio" aria-checked={value === id} className={`print${value === id ? ' on' : ''}`} onClick={() => onChange(id)}>
+          <CardFace code={id} info={catalog[id]} count={counts?.[id]} />
+          <span>{catalog[id]?.vl ?? 'Normal'}</span>
+        </button>
+      ))}
     </div>
   );
 }
@@ -121,7 +139,7 @@ export function PriceSheet({ code, info, current, onSave, onClose }: {
     <div className="sheet-backdrop" onClick={onClose}>
       <section className="sheet" role="dialog" aria-modal="true" aria-labelledby="price-title" onClick={(e) => e.stopPropagation()}>
         <div className="sheet-head">
-          <h2 id="price-title">Preço na Liga: {info?.n ?? code}</h2>
+          <h2 id="price-title">Preço na Liga: {info?.n ?? code}{info?.vl ? ` (${info.vl})` : ''}</h2>
           <button className="icon-btn" onClick={onClose} aria-label="Fechar"><CloseIcon /></button>
         </div>
         <p className="hint">

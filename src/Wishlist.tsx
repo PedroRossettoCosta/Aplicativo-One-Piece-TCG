@@ -1,7 +1,7 @@
 // Wishlist: cards the player wants to buy, with the prices they noted on Liga. Tick what you are buying now
 // and read the total; "Comprei" moves the ticked cards into the collection.
 import { useMemo, useState } from 'react';
-import { ligaUrl, type Catalog } from './cards';
+import { ligaUrl, baseOf, byPrint, type Catalog } from './cards';
 import type { Collection, Prices } from './backend';
 import { CardFace, CardStepper, Sheet, PRICE_FIELDS, brl, ageLabel, daysSince, markPending } from './ui';
 import { FilterBar, NO_FILTERS, matches, type Filters } from './Filters';
@@ -17,7 +17,7 @@ export default function WishlistScreen({ wish, owned, prices, catalog, change, o
   change: (code: string, delta: number) => void; onPrice: (code: string) => void;
   onBought: (codes: Record<string, number>) => void;
 }) {
-  const codes = Object.keys(wish).sort();
+  const codes = Object.keys(wish).sort(byPrint);
   // what the player is buying now and which Liga column they count with: this device only
   const [picked, setPicked] = useState<string[]>(() => load(PICK_KEY, []));
   const [basis, setBasis] = useState<Basis>(() => load(BASIS_KEY, 'avg'));
@@ -79,7 +79,8 @@ export default function WishlistScreen({ wish, owned, prices, catalog, change, o
                   <span className="wish-art"><CardFace code={code} info={info} count={wish[code]} /></span>
                   <div className="wish-info">
                     <p className="tile-name">{info?.n ?? code}</p>
-                    <p className="tile-meta">{code}{info && ` · ${info.r}`}{owned[code] ? ` · você tem ${owned[code]}` : ''}</p>
+                    <p className="tile-meta">{baseOf(code)}{info && ` · ${info.r}`}{owned[code] ? ` · você tem ${owned[code]}` : ''}</p>
+                    {info?.vl && <p className="tile-meta print-label">{info.vl}</p>}
                     {unit != null ? (
                       <p className="wish-price">
                         <strong>{brl(unit * wish[code])}</strong>
@@ -139,18 +140,23 @@ export function AddWishSheet({ catalog, wish, owned, onAdd, onRemove, onClose }:
 }) {
   const [f, setF] = useState<Filters>(NO_FILTERS);
   const [limit, setLimit] = useState(60);
-  const all = useMemo(() => Object.keys(catalog).sort(), [catalog]);
+  const [alts, setAlts] = useState(false);
+  const all = useMemo(() => Object.keys(catalog).filter((c) => alts || !catalog[c].b).sort(byPrint), [catalog, alts]);
   const hits = useMemo(() => all.filter((c) => matches(c, catalog, f)), [all, catalog, f]);
   return (
     <Sheet title="Adicionar à lista de desejos" onClose={onClose} wide>
       <FilterBar value={f} onChange={(v) => { setF(v); setLimit(60); }} pool={all} catalog={catalog} />
+      <label className="check">
+        <input type="checkbox" checked={alts} onChange={(e) => { setAlts(e.target.checked); setLimit(60); }} />
+        <span>Mostrar artes alternativas</span>
+      </label>
       <p className="hint">Use − e + para escolher quantas cópias você quer. {hits.length} {hits.length === 1 ? 'carta' : 'cartas'}.</p>
       <ul className="card-grid">
         {hits.slice(0, limit).map((c) => (
           <li key={c}>
             <button className="grid-card" onClick={() => onAdd(c)} aria-label={`${catalog[c].n} ${c}: adicionar uma cópia aos desejos`}>
               <CardFace code={c} info={catalog[c]} count={wish[c]} />
-              <span className="grid-cap">{c}{owned[c] ? ` · tem ${owned[c]}` : ''}</span>
+              <span className="grid-cap">{catalog[c].vl ?? c}{owned[c] ? ` · tem ${owned[c]}` : ''}</span>
             </button>
             <CardStepper value={wish[c] ?? 0} name={catalog[c].n} onMinus={() => onRemove(c)} onPlus={() => onAdd(c)} />
           </li>

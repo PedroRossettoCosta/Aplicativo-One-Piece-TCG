@@ -1,10 +1,11 @@
 // Camera scanner: reads the printed card code (bottom-right corner) with on-device OCR.
 // Frames never leave the phone. tesseract.js is loaded only when the scanner opens.
 import { useEffect, useRef, useState } from 'react';
-import { findCode, similarCodes, setOf, codesByName, type Catalog } from './cards';
+import { findCode, similarCodes, setOf, codesByName, printsOf, type Catalog } from './cards';
 import { fingerprintsInFrame, chooseByArt, exampleFor } from './fingerprint';
 import { getOcr, readText, readName, setOcrProgress } from './ocr';
 import { CloseIcon, PlusIcon } from './icons';
+import { PrintPicker } from './ui';
 
 type Props = {
   catalog: Catalog;
@@ -31,6 +32,8 @@ export default function Scanner({ catalog, owned, renderArt, onAdd, onType, lear
   const frame = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<Status>('starting');
   const [found, setFound] = useState<string | null>(null);
+  const [print, setPrint] = useState<string | null>(null); // which print of the found card (alternative arts share the code)
+  useEffect(() => { setPrint(found); }, [found]);
   const [added, setAdded] = useState(0);
   const [slow, setSlow] = useState(false); // nothing read for a while: show tips
   const [torch, setTorch] = useState<boolean | null>(null); // null = torch not available
@@ -162,13 +165,20 @@ export default function Scanner({ catalog, owned, renderArt, onAdd, onType, lear
               <p className="tile-name">{info?.n ?? found}</p>
               <p className="tile-meta">{found}{info && ` · ${info.r}`}</p>
               <p className="tile-meta">{owned[found] ? `Você tem ${owned[found]}` : 'Nova na coleção'}</p>
+              {print && print !== found && <p className="tile-meta">Versão: {catalog[print]?.vl}</p>}
               <div className="scan-actions">
-                <button className="btn primary" onClick={() => { onAdd(found); if (seenRef.current) onLearn(found, seenRef.current, detectedRef.current !== found ? detectedRef.current ?? undefined : undefined); setAdded((n) => n + 1); resume(); }}>
+                <button className="btn primary" onClick={() => { onAdd(print ?? found); if (seenRef.current) onLearn(found, seenRef.current, detectedRef.current !== found ? detectedRef.current ?? undefined : undefined); setAdded((n) => n + 1); resume(); }}>
                   <PlusIcon /> Adicionar
                 </button>
                 <button className="btn" onClick={resume}>Escanear de novo</button>
               </div>
             </div>
+            {printsOf(found, catalog).length > 1 && (
+              <div className="scan-alts">
+                <p className="hint">Qual versão é a sua?</p>
+                <PrintPicker code={found} catalog={catalog} value={print ?? found} onChange={setPrint} />
+              </div>
+            )}
             <div className="scan-alts">
               <p className="hint">Não é essa? Talvez: <span className="learn-note">(escolher a certa ensina o scanner)</span></p>
               <div className="chips">

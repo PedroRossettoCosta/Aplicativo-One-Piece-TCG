@@ -6,10 +6,10 @@ import {
   EXAMPLES_PER_CARD, TEACHER_UID, loadSharedLearned, saveSharedLearned, loadAllSharedLearned, clearSharedLearned,
 } from './backend';
 import {
-  normalizeCode, ligaUrl, imageUrl, SHOW_IMAGES, setOf, loadCatalog, colorsPt, colorKeys, type Catalog,
+  normalizeCode, ligaUrl, imageUrl, SHOW_IMAGES, setOf, loadCatalog, colorsPt, colorKeys, baseOf, byPrint, perCode, type Catalog,
 } from './cards';
 import Scanner, { exampleOf } from './Scanner';
-import { CardArt, CardFace, PRICE_FIELDS, brl, daysSince, ageLabel, markPending, readPending, clearPending, PriceSheet } from './ui';
+import { CardArt, CardFace, CardStepper, PrintPicker, Sheet, PRICE_FIELDS, brl, daysSince, ageLabel, markPending, readPending, clearPending, PriceSheet } from './ui';
 import { preloadOcr } from './ocr';
 import { ScanIcon, ShelfIcon, UserIcon, PlusIcon, MinusIcon, CloseIcon, ExternalIcon, WishIcon, DecksIcon } from './icons';
 import WishlistScreen from './Wishlist';
@@ -200,7 +200,7 @@ function Shell({ user }: { user: User }) {
         <WishlistScreen wish={wish} owned={cards} prices={prices} catalog={catalog} change={changeWish} onPrice={setPricing}
           onBought={(b) => buyWished(user.uid, b).then(() => setMessage('Pronto! As cartas foram para a sua coleção.'), fail)} />
       ) : tab === 'decks' ? (
-        <DecksScreen decks={decks} owned={cards} wish={wish} catalog={catalog} notify={setMessage}
+        <DecksScreen decks={decks} owned={perCode(cards)} wish={perCode(wish)} catalog={catalog} notify={setMessage}
           save={(id, d) => saveDeck(user.uid, id, d).catch(fail)}
           addWish={(add) => addToWish(user.uid, add).catch(fail)} />
       ) : (
@@ -239,7 +239,7 @@ function Shell({ user }: { user: User }) {
       </nav>
 
       {scanning && (
-        <Scanner catalog={catalog} owned={cards}
+        <Scanner catalog={catalog} owned={perCode(cards)}
           renderArt={(code) => <CardArt code={code} info={catalog[code]} />}
           onAdd={(code) => { change(code, 1); setTab('colecao'); setFocus(code); }}
           onType={(prefix, seen, detected) => { pendingSeen.current = seen ?? null; pendingDetected.current = detected; setScanning(false); setTypePrefix(prefix ?? ''); setAdding(true); }}
@@ -248,11 +248,11 @@ function Shell({ user }: { user: User }) {
       )}
 
       {adding && (
-        <AddSheet catalog={catalog} owned={cards} initial={typePrefix} onClose={() => { setAdding(false); setTypePrefix(''); pendingSeen.current = null; }}
+        <AddSheet catalog={catalog} owned={perCode(cards)} initial={typePrefix} onClose={() => { setAdding(false); setTypePrefix(''); pendingSeen.current = null; }}
           onAdd={(code) => {
             change(code, 1); setTab('colecao'); setFocus(code);
             // typed after "Outro número…": the scanner learns the right card for that frame
-            if (pendingSeen.current) { learn(code, pendingSeen.current, pendingDetected.current !== code ? pendingDetected.current : undefined); pendingSeen.current = null; }
+            if (pendingSeen.current) { learn(baseOf(code), pendingSeen.current, pendingDetected.current !== code ? pendingDetected.current : undefined); pendingSeen.current = null; }
           }} />
       )}
 
@@ -278,12 +278,12 @@ type Tab = 'colecao' | 'desejos' | 'decks' | 'conta';
 
 function CollectionScreen({ cards, prices, catalog, focus, setFocus, change, total, onAdd, onPrice }: ScreenProps) {
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
-  const codes = Object.keys(cards).sort();
+  const codes = Object.keys(cards).sort(byPrint);
 
   // How many cards each set has in the catalog, for real completion figures.
   const setSizes = useMemo(() => {
     const sizes: Record<string, number> = {};
-    for (const code of Object.keys(catalog)) sizes[setOf(code)] = (sizes[setOf(code)] ?? 0) + 1;
+    for (const code of Object.keys(catalog)) if (!catalog[code].b) sizes[setOf(code)] = (sizes[setOf(code)] ?? 0) + 1;
     return sizes;
   }, [catalog]);
 
@@ -328,7 +328,7 @@ function CollectionScreen({ cards, prices, catalog, focus, setFocus, change, tot
               {row.set && catalog[row.codes[0]] && <span className="set-name"> · {catalog[row.codes[0]].s}</span>}
             </h2>
             {row.set && setSizes[row.set] && !filtering ? (
-              <span className="completion">{row.codes.length} de {setSizes[row.set]}</span>
+              <span className="completion">{new Set(row.codes.map(baseOf)).size} de {setSizes[row.set]}</span>
             ) : filtering ? <span className="completion">{row.codes.length}</span> : null}
           </div>
           {row.codes.length === 0 ? (
@@ -336,7 +336,7 @@ function CollectionScreen({ cards, prices, catalog, focus, setFocus, change, tot
           ) : (
             <ul className="rail">
               {row.codes.map((code) => (
-                <Tile key={code} code={code} qty={cards[code]} info={catalog[code]} price={prices[code]}
+                <Tile key={code} code={code} qty={cards[code]} info={catalog[code]} price={prices[code]} catalog={catalog} cards={cards}
                   focused={focus === code} onToggle={() => setFocus(focus === code ? null : code)}
                   change={change} onPrice={() => onPrice(code)} />
               ))}
@@ -348,11 +348,12 @@ function CollectionScreen({ cards, prices, catalog, focus, setFocus, change, tot
   );
 }
 
-function Tile({ code, qty, info, price, focused, onToggle, change, onPrice }: {
-  code: string; qty: number; info?: Catalog[string]; price?: Price; focused: boolean;
+function Tile({ code, qty, info, price, focused, onToggle, change, onPrice, catalog, cards }: {
+  code: string; qty: number; info?: Catalog[string]; price?: Price; focused: boolean; catalog: Catalog; cards: Collection;
   onToggle: () => void; change: (code: string, delta: number) => void; onPrice: () => void;
 }) {
   const ref = useRef<HTMLLIElement>(null);
+  const [prints, setPrints] = useState(false);
   useEffect(() => {
     if (focused) ref.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
   }, [focused]);
@@ -368,8 +369,9 @@ function Tile({ code, qty, info, price, focused, onToggle, change, onPrice }: {
           <p className="tile-name">{info?.n ?? code}</p>
           <p className="tile-meta">
             {colorKeys(info?.c).map((k) => <i key={k} className={`dot ${k}`} />)}
-            {code}{info && ` · ${info.r} · ${colorsPt(info.c)}`}
+            {baseOf(code)}{info && ` · ${info.r} · ${colorsPt(info.c)}`}
           </p>
+          {info?.vl && <p className="tile-meta print-label">{info.vl}</p>}
           <div className="stepper" role="group" aria-label="Quantidade">
             <button onClick={() => change(code, -1)} aria-label="Remover uma cópia"><MinusIcon /></button>
             <output aria-live="polite">{qty}</output>
@@ -400,7 +402,22 @@ function Tile({ code, qty, info, price, focused, onToggle, change, onPrice }: {
           <a className="liga" href={ligaUrl(code)} target="_blank" rel="noopener noreferrer" onClick={() => markPending(code)}>
             Ver preço na Liga <ExternalIcon />
           </a>
+          {(catalog[baseOf(code)]?.v) && <button className="inline-link" onClick={() => setPrints(true)}>Outras versões desta carta</button>}
         </div>
+      )}
+      {prints && (
+        <Sheet title={`Versões de ${info?.n ?? code}`} onClose={() => setPrints(false)}>
+          <p className="hint">Cada versão conta separado na coleção e tem o seu próprio preço.</p>
+          <ul className="card-grid">
+            {[baseOf(code), ...Object.keys(catalog[baseOf(code)]?.v ?? {}).map((v) => `${baseOf(code)}_${v}`)].map((id) => (
+              <li key={id}>
+                <CardFace code={id} info={catalog[id]} count={cards[id]} />
+                <span className="grid-cap">{catalog[id]?.vl ?? 'Normal'}</span>
+                <CardStepper value={cards[id] ?? 0} name={catalog[id]?.vl ?? 'normal'} onMinus={() => change(id, -1)} onPlus={() => change(id, 1)} />
+              </li>
+            ))}
+          </ul>
+        </Sheet>
       )}
     </li>
   );
@@ -414,6 +431,8 @@ function AddSheet({ catalog, owned, initial = '', onAdd, onClose }: {
   const [input, setInput] = useState(initial);
   const [added, setAdded] = useState<string[]>([]);
   const code = normalizeCode(input);
+  const [print, setPrint] = useState<string | null>(null);
+  const chosen = print && code && baseOf(print) === code ? print : code;
   const info = code ? catalog[code] : undefined;
 
   useEffect(() => {
@@ -425,8 +444,8 @@ function AddSheet({ catalog, owned, initial = '', onAdd, onClose }: {
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (!code) return;
-    onAdd(code);
-    setAdded([code, ...added]);
+    onAdd(chosen!);
+    setAdded([chosen!, ...added]);
     setInput('');
   };
 
@@ -457,7 +476,8 @@ function AddSheet({ catalog, owned, initial = '', onAdd, onClose }: {
               <p className="hint">{input ? 'Continue digitando: o formato é OP01-120.' : 'O código fica no canto inferior direito da carta.'}</p>
             )}
           </div>
-          <button type="submit" className="btn primary" disabled={!code}><PlusIcon /> Adicionar</button>
+          {code && info && <PrintPicker code={code} catalog={catalog} value={chosen!} onChange={setPrint} />}
+          <button type="submit" className="btn primary" disabled={!code}><PlusIcon /> Adicionar{chosen && chosen !== code ? ` (${catalog[chosen]?.vl})` : ''}</button>
         </form>
         {added.length > 0 && <p className="hint">Adicionadas agora: {added.join(', ')}</p>}
       </section>

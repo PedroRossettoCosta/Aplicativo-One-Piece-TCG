@@ -6,7 +6,9 @@
 //
 // Per card: n name, c colour(s), r rarity, t type, s set name, k cost, p power, ct counter, l life,
 // a attribute, tr traits (array), plus deck-building rules printed on the card:
-// u = any number of copies allowed, lr = leader restriction { maxCost } / { eventMaxCost }.
+// u = any number of copies allowed, lr = leader restriction { maxCost } / { eventMaxCost },
+// v = alternative versions printed with the same code { "p2": "Paralela · Mangá" }; their id is "<code>_p2"
+// (the card image file uses the same id).
 import { readFileSync, writeFileSync } from 'node:fs';
 
 const args = process.argv.slice(2);
@@ -15,11 +17,31 @@ const official = ti >= 0 ? JSON.parse(readFileSync(args.splice(ti, 2)[1], 'utf8'
 const raw = [];
 for (const file of args) raw.push(...JSON.parse(readFileSync(file, 'utf8')));
 
+// pt-BR names for the version tags in the source's card names ("Shanks (Parallel) (Manga)")
+const TAG_PT = {
+  'Alternate Art': 'Arte alternativa', Reprint: 'Reimpressão', Parallel: 'Paralela', Manga: 'Mangá',
+  'Full Art': 'Arte completa', 'Pirate Foil': 'Foil pirata', 'Jolly Roger Foil': 'Foil Jolly Roger', 'Textured Foil': 'Foil texturizado',
+  'Super Alternate Art': 'Super arte alternativa', 'Super Rare Alternate Art': 'Arte alternativa SR', 'Red Super Alternate Art': 'Super arte alternativa vermelha',
+  'Super Leader Alternate Art': 'Arte alternativa de líder', Gold: 'Dourada', Silver: 'Prateada', 'Gold Stamped': 'Assinatura dourada',
+  'Gold-Stamped Signature': 'Assinatura dourada', 'Wanted Poster': 'Cartaz de procurado', 'Box Topper': 'Box topper', 'Dash Pack': 'Dash pack',
+  'Heroine Leader': 'Líder heroína',
+};
+function versionLabel(name) {
+  const tags = [...name.matchAll(/\(([^)]*)\)/g)].map((m) => m[1]).filter((t) => !/^\d+$|^[A-Z]+\d*-\d+$/.test(t));
+  return tags.length ? tags.map((t) => TAG_PT[t] ?? t).join(' · ') : 'Versão alternativa';
+}
+
 const num = (v) => (v === null || v === undefined || v === '' || isNaN(+v) ? undefined : +v);
 const cards = {};
-for (const c of raw) {
+const variants = {};
+const vidOf = (c) => (c.card_image_id?.includes('_') ? c.card_image_id.slice(c.card_image_id.indexOf('_') + 1) : '');
+// normal prints first, so a card known only from an alternative print still gets its data from that print
+for (const c of [...raw.filter((c) => !vidOf(c)), ...raw.filter((c) => vidOf(c))]) {
   const code = c.card_set_id;
-  if (!code || cards[code]) continue; // parallels share the code; keep the first entry
+  if (!code) continue;
+  const vid = vidOf(c);
+  if (vid) (variants[code] ??= {})[vid] = versionLabel(c.card_name); // alternative art, same card
+  if (cards[code]) continue;
   const text = c.card_text ?? '';
   const card = {
     n: c.card_name.replace(/\s*\(.*$/, ''),
@@ -40,5 +62,6 @@ for (const c of raw) {
   if (!card.tr.length) delete card.tr;
   cards[code] = card;
 }
+for (const [code, v] of Object.entries(variants)) if (cards[code]) cards[code].v = v;
 writeFileSync('public/catalog.json', JSON.stringify(cards));
 console.log(Object.keys(cards).length, 'cards');
