@@ -66,10 +66,10 @@ export const bestDistance = (seen: Int8Array[], ref: Int8Array) => Math.min(...s
  * - `sure` = the chosen card's art is clearly closer than every other candidate, so a single OCR read
  *   is enough (no need to wait for a second, matching read).
  */
-export function chooseByArt(seen: Int8Array[], read: string, candidates: string[], refs: Record<string, string>) {
+export function chooseByArt(seen: Int8Array[], read: string, candidates: string[], refs: Record<string, string | string[]>) {
   const scores = candidates
-    .filter((c) => refs[c])
-    .map((c) => ({ c, d: bestDistance(seen, decode(refs[c])) }))
+    .filter((c) => refs[c]?.length)
+    .map((c) => ({ c, d: Math.min(...[refs[c]].flat().map((r) => bestDistance(seen, decode(r)))) }))
     .sort((a, b) => a.d - b.d);
   const ocr = scores.find((s) => s.c === read);
   if (!ocr || scores.length === 0) return { code: read, sure: false }; // no reference art: trust OCR, not sure
@@ -79,6 +79,18 @@ export function chooseByArt(seen: Int8Array[], read: string, candidates: string[
   const runnerUp = scores.find((s) => s.c !== code);
   const sure = chosen === best && (!runnerUp || chosen.d < runnerUp.d * 0.8);
   return { code, sure };
+}
+
+/**
+ * What to remember when the player confirms `code`: the placement of the card in the frame that best matches
+ * its official art (or, with no official art, the card filling the frame).
+ */
+export function exampleFor(seen: Int8Array[], official?: string): string {
+  if (!official) return encode(seen[seen.length - 1]);
+  const ref = decode(official);
+  let best = seen[0], bd = Infinity;
+  for (const s of seen) { const d = distance(s, ref); if (d < bd) { bd = d; best = s; } }
+  return encode(best);
 }
 
 /** Smaller = more alike. */

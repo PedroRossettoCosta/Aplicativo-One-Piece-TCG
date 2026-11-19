@@ -7,7 +7,7 @@ import {
   setPersistence, browserLocalPersistence, browserSessionPersistence, signInWithRedirect, getRedirectResult,
 } from 'firebase/auth';
 import {
-  initializeFirestore, persistentLocalCache, doc, onSnapshot, setDoc, deleteDoc, increment, deleteField,
+  initializeFirestore, persistentLocalCache, doc, onSnapshot, setDoc, deleteDoc, increment, deleteField, getDoc,
 } from 'firebase/firestore';
 
 const app = initializeApp({
@@ -75,8 +75,18 @@ export const changeQuantity = (uid: string, code: string, delta: number, current
 export const savePrice = (uid: string, code: string, price: Price) =>
   setDoc(userDoc(uid), { prices: { [code]: price } }, { merge: true });
 
-/** LGPD: permanently deletes the player's collection and account. */
+/** What the player taught the scanner: card code → up to 4 artwork fingerprints from their own camera. */
+export type Learned = Record<string, string[]>;
+const learnedDoc = (uid: string) => doc(db, 'users', uid, 'private', 'learned');
+export const loadLearned = async (uid: string): Promise<Learned> =>
+  (await getDoc(learnedDoc(uid)).catch(() => null))?.data()?.ex ?? {};
+export const saveLearned = (uid: string, code: string, examples: string[]) =>
+  setDoc(learnedDoc(uid), { ex: { [code]: examples } }, { merge: true });
+export const clearLearned = (uid: string) => deleteDoc(learnedDoc(uid));
+
+/** LGPD: permanently deletes the player's collection, what they taught the scanner, and the account. */
 export async function deleteAccount(user: User) {
+  await deleteDoc(learnedDoc(user.uid));
   await deleteDoc(userDoc(user.uid));
   await deleteUser(user);
 }

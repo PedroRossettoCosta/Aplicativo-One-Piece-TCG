@@ -2,11 +2,12 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   onUserChange, signIn, signUp, signInWithGoogle, redirectLoginResult, setRemember, resetPassword, logOut, deleteAccount,
   watchCollection, changeQuantity, savePrice, type User, type Collection, type Price, type Prices,
+  loadLearned, saveLearned, clearLearned, type Learned,
 } from './backend';
 import {
   normalizeCode, ligaUrl, imageUrl, SHOW_IMAGES, setOf, loadCatalog, colorsPt, colorKeys, type Catalog,
 } from './cards';
-import Scanner from './Scanner';
+import Scanner, { exampleOf } from './Scanner';
 import { preloadOcr } from './ocr';
 import { SearchIcon, ScanIcon, ShelfIcon, UserIcon, PlusIcon, MinusIcon, CloseIcon, ExternalIcon } from './icons';
 
@@ -76,6 +77,10 @@ function Shell({ user }: { user: User }) {
   const [tab, setTab] = useState<'colecao' | 'conta'>('colecao');
   const [adding, setAdding] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [learned, setLearned] = useState<Learned>({}); // what the player taught the scanner (loaded once)
+  const learnedLoaded = useRef(false);
+  const pendingSeen = useRef<Int8Array[] | null>(null); // frame waiting for a typed correction
+  const pendingDetected = useRef<string | undefined>(undefined); // what the scanner had read for that frame
   const [typePrefix, setTypePrefix] = useState('');
   const [cards, setCards] = useState<Collection>({});
   const [catalog, setCatalog] = useState<Catalog>({});
@@ -85,6 +90,22 @@ function Shell({ user }: { user: User }) {
   const [pricing, setPricing] = useState<string | null>(null); // card whose Liga price is being noted
 
   useEffect(() => watchCollection(user.uid, (c, p) => { setCards(c); setPrices(p); }), [user.uid]);
+  useEffect(() => {
+    if ((!scanning && tab !== 'conta') || learnedLoaded.current) return;
+    learnedLoaded.current = true;
+    loadLearned(user.uid).then(setLearned);
+  }, [scanning, tab, user.uid]);
+
+  /** Remember how `code` looks in this player's camera (newest 4 examples per card). */
+  const learn = async (code: string, seen: Int8Array[], correctedFrom?: string) => {
+    if (correctedFrom) setMessage(`Anotado! O scanner vai lembrar como a ${code} aparece na sua câmera. Ele aprendeu a aparência dessa carta — não uma troca de números —, então a ${correctedFrom} de verdade continua sendo reconhecida normalmente.`);
+    const example = await exampleOf(seen, code);
+    setLearned((prev) => {
+      const list = [example, ...(prev[code] ?? [])].slice(0, 4);
+      saveLearned(user.uid, code, list).catch((e) => setMessage(friendlyError(e)));
+      return { ...prev, [code]: list };
+    });
+  };
   useEffect(() => { loadCatalog().then(setCatalog); preloadOcr(); }, []);
 
   // Back from Liga: offer to note the price. Stored so it survives iOS reloading the app meanwhile.
@@ -111,7 +132,8 @@ function Shell({ user }: { user: User }) {
         <CollectionScreen cards={cards} prices={prices} catalog={catalog} focus={focus} setFocus={setFocus}
           change={change} total={total} onAdd={() => setAdding(true)} onPrice={setPricing} />
       ) : (
-        <AccountScreen user={user} different={codes.length} total={total} onError={setMessage} />
+        <AccountScreen user={user} different={codes.length} total={total} onError={setMessage} learnedCount={Object.keys(learned).length}
+          onForget={() => { clearLearned(user.uid).then(() => { setLearned({}); learnedLoaded.current = true; setMessage('O scanner esqueceu o que aprendeu.'); }, (e) => setMessage(friendlyError(e))); }} />
       )}
       {message && <p className="toast" role="status" onClick={() => setMessage('')}>{message}</p>}
 
@@ -131,13 +153,18 @@ function Shell({ user }: { user: User }) {
         <Scanner catalog={catalog} owned={cards}
           renderArt={(code) => <CardArt code={code} info={catalog[code]} />}
           onAdd={(code) => { change(code, 1); setTab('colecao'); setFocus(code); }}
-          onType={(prefix) => { setScanning(false); setTypePrefix(prefix ?? ''); setAdding(true); }}
+          onType={(prefix, seen, detected) => { pendingSeen.current = seen ?? null; pendingDetected.current = detected; setScanning(false); setTypePrefix(prefix ?? ''); setAdding(true); }}
+          learned={learned} onLearn={learn}
           onClose={() => setScanning(false)} />
       )}
 
       {adding && (
-        <AddSheet catalog={catalog} owned={cards} initial={typePrefix} onClose={() => { setAdding(false); setTypePrefix(''); }}
-          onAdd={(code) => { change(code, 1); setTab('colecao'); setFocus(code); }} />
+        <AddSheet catalog={catalog} owned={cards} initial={typePrefix} onClose={() => { setAdding(false); setTypePrefix(''); pendingSeen.current = null; }}
+          onAdd={(code) => {
+            change(code, 1); setTab('colecao'); setFocus(code);
+            // typed after "Outro número…": the scanner learns the right card for that frame
+            if (pendingSeen.current) { learn(code, pendingSeen.current, pendingDetected.current !== code ? pendingDetected.current : undefined); pendingSeen.current = null; }
+          }} />
       )}
 
       {pricing && (
@@ -447,8 +474,8 @@ function PriceSheet({ code, info, current, onSave, onClose }: {
 
 // ---------- Account ----------
 
-function AccountScreen({ user, different, total, onError }: {
-  user: User; different: number; total: number; onError: (m: string) => void;
+function AccountScreen({ user, different, total, onError, onForget, learnedCount }: {
+  user: User; different: number; total: number; onError: (m: string) => void; onForget: () => void; learnedCount: number;
 }) {
   const remove = () => {
     if (confirm('Apagar sua conta e toda a sua coleção? Isso não pode ser desfeito.'))
@@ -468,6 +495,13 @@ function AccountScreen({ user, different, total, onError }: {
         <button className="btn" onClick={logOut}>Sair</button>
         <button className="link danger" onClick={remove}>Apagar minha conta e coleção</button>
       </div>
+      <section className="learn-box">
+        <h2>Como o scanner aprende</h2>
+        <p>Quando você confirma uma carta com <strong>Adicionar</strong>, ou corrige o scanner escolhendo a carta certa em "Não é essa?", ele guarda um pequeno resumo de como aquela carta aparece na sua câmera (cores e formas, não a foto).</p>
+        <p>Na próxima vez, ele compara a carta com a imagem oficial <em>e</em> com o que você ensinou. Ele aprende a <strong>aparência</strong> de cada carta, não uma troca de números: ensinar que uma leitura era a 096 não faz a 006 de verdade virar 096, porque as duas têm artes diferentes.</p>
+        <p>Fica salvo na sua conta e vale em todos os seus aparelhos.{learnedCount ? ` Até agora: ${learnedCount} ${learnedCount === 1 ? 'carta aprendida' : 'cartas aprendidas'}.` : ''}</p>
+        <button className="link" onClick={() => { if (confirm('Apagar tudo o que o scanner aprendeu com as suas confirmações e correções?')) onForget(); }}>Apagar o que o scanner aprendeu</button>
+      </section>
       <p className="hint">Preços vêm da Liga One Piece, que abre no navegador. Este app não é afiliado à Liga nem à Bandai.</p>
     </main>
   );
