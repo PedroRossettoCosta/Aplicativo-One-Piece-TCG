@@ -32,7 +32,10 @@ Scanning reads the printed card code rather than recognising the artwork, so it 
 ## Capabilities and Constraints
 
 - Accounts: e-mail + password and Google (Firebase Authentication).
-- Collection: one Firestore document per player, `users/{uid} = { cards: { code: quantity } }`; quantity 0 removes the card. Works offline via local cache.
+- Collection: one Firestore document per player, `users/{uid} = { cards, prices, wish, decks }`; quantity 0 removes the card. Works offline via local cache. Filters: colour, type, cost, rarity, trait/crew (official traits from punk-records), set.
+- Wishlist (added 2026-11-19): cards to buy with copies; uses the same hand-noted Liga prices; the player ticks what they buy now and sees the total (Menor/Médio/Maior); "Comprei" moves them into the collection.
+- Decks (added 2026-11-19): several planned decks; official rules in `src/deck.ts` (1 leader, 50 cards, max 4 copies unless the card says otherwise, leader colours, leader restrictions, Bandai's banned cards and banned pairs, which must be updated by hand when Bandai changes them); text import/export ("4xOP01-016"); owned vs missing shown on each card; missing copies go to the wishlist in one tap.
+- Theme: dark and light, following the phone unless the player pins one in Conta; accent red (changed from orange 2026-11-19 at the user's request).
 - **Prices are only what the player notes by hand** (changed 2026-11-18 at the user's request): after opening a card on Liga, the app offers to record the Menor / Médio / Maior values the player saw, stored with the date and shown with its age ("há 3 dias"; amber after 7 days). The app never fetches, estimates or invents prices.
 - **Never claim a partnership with Liga One Piece** or any official status. There is none.
 - Card images: user decision (2026-11-18) is to show Bandai's "SAMPLE"-watermarked card images, loaded from optcgapi.com. Bandai's own server blocks embedding (Cross-Origin-Resource-Policy). A watermark reduces but does not remove copyright risk, so a kill switch (`VITE_CARD_IMAGES=off`) swaps every image for a colour block. Never self-host copies. Catalog (names, colours, rarity, set; no prices) is built from optcgapi.com by `scripts/build-catalog.mjs`.

@@ -2,7 +2,8 @@ rules_version = '2';
 
 // Paste into Firebase console → Firestore → Rules → Publish.
 // Each player has:
-//   users/{uid}                 = { cards: { "OP17-088": 2, ... }, prices: { "OP17-088": { min, avg, max, at }, ... } }
+//   users/{uid}                 = { cards: { "OP17-088": 2, ... }, prices: { "OP17-088": { min, avg, max, at }, ... },
+//                                   wish: { "OP01-120": 1, ... }, decks: { "<id>": { name, leader, cards: {...}, at }, ... } }
 //   users/{uid}/private/learned = { ex: { "OP17-096": ["<fingerprint>", ...] } }   what they taught the scanner
 // and only that player can read or change them.
 // learned/{set} = the shared base taught by the teacher account (TEACHER_UID in src/backend.ts):
@@ -15,11 +16,15 @@ service cloud.firestore {
     match /users/{uid} {
       allow read, delete: if request.auth != null && request.auth.uid == uid;
       allow create, update: if request.auth != null && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly(['cards', 'prices'])
+        && request.resource.data.keys().hasOnly(['cards', 'prices', 'wish', 'decks'])
         && request.resource.data.get('cards', {}) is map
         && request.resource.data.get('cards', {}).size() <= 5000
         && request.resource.data.get('prices', {}) is map
-        && request.resource.data.get('prices', {}).size() <= 5000;
+        && request.resource.data.get('prices', {}).size() <= 5000
+        && request.resource.data.get('wish', {}) is map
+        && request.resource.data.get('wish', {}).size() <= 3000
+        && request.resource.data.get('decks', {}) is map
+        && request.resource.data.get('decks', {}).size() <= 100;
     }
     match /users/{uid}/private/learned {
       allow read, delete: if request.auth != null && request.auth.uid == uid;

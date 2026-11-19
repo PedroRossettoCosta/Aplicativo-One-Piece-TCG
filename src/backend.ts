@@ -6,6 +6,7 @@ import {
   signInWithPopup, GoogleAuthProvider, sendPasswordResetEmail, signOut, deleteUser, type User,
   setPersistence, browserLocalPersistence, browserSessionPersistence, signInWithRedirect, getRedirectResult,
 } from 'firebase/auth';
+import type { Deck, Decks } from './deck';
 import {
   initializeFirestore, persistentLocalCache, doc, onSnapshot, setDoc, deleteDoc, increment, deleteField, getDoc,
   getDocs, collection,
@@ -27,6 +28,8 @@ export type Collection = Record<string, number>;
 /** A price the player copied from Liga by hand (R$), with when they noted it (ms since epoch). */
 export type Price = { min?: number; avg?: number; max?: number; at: number };
 export type Prices = Record<string, Price>;
+/** Everything in the player's document. wish = cards they want to buy (code → copies); decks = planned decks. */
+export type PlayerData = { cards: Collection; prices: Prices; wish: Collection; decks: Decks };
 
 export const onUserChange = (cb: (user: User | null) => void) => onAuthStateChanged(auth, cb);
 
@@ -58,19 +61,45 @@ export const logOut = () => signOut(auth);
 
 const userDoc = (uid: string) => doc(db, 'users', uid);
 
-/** Calls cb with the player's collection and noted prices now and whenever they change. Returns an unsubscribe function. */
-export const watchCollection = (uid: string, cb: (cards: Collection, prices: Prices) => void) =>
-  onSnapshot(userDoc(uid), (snap) => cb(snap.data()?.cards ?? {}, snap.data()?.prices ?? {}));
+/** Calls cb with the player's data now and whenever it changes. Returns an unsubscribe function. */
+export const watchPlayer = (uid: string, cb: (d: PlayerData) => void) =>
+  onSnapshot(userDoc(uid), (snap) => {
+    const d = snap.data() ?? {};
+    cb({ cards: d.cards ?? {}, prices: d.prices ?? {}, wish: d.wish ?? {}, decks: d.decks ?? {} });
+  });
 
-/** Adds (delta > 0) or removes (delta < 0) copies of a card. Drops the card (and its noted price) at 0. */
-export const changeQuantity = (uid: string, code: string, delta: number, current: number) =>
+/**
+ * Adds (delta > 0) or removes (delta < 0) copies of a card in the collection (field "cards") or the wishlist
+ * ("wish"). At 0 the card leaves that list; its noted price goes too unless the other list still has it.
+ */
+export const changeQuantity = (uid: string, code: string, delta: number, current: number, keepPrice = false, field: 'cards' | 'wish' = 'cards') =>
   setDoc(
     userDoc(uid),
     current + delta <= 0
-      ? { cards: { [code]: deleteField() }, prices: { [code]: deleteField() } }
-      : { cards: { [code]: increment(delta) } },
+      ? { [field]: { [code]: deleteField() }, ...(keepPrice ? {} : { prices: { [code]: deleteField() } }) }
+      : { [field]: { [code]: increment(delta) } },
     { merge: true },
   );
+
+/** Adds copies to the wishlist in one write (e.g. every card a deck is missing). */
+export const addToWish = (uid: string, add: Record<string, number>) =>
+  setDoc(userDoc(uid), { wish: Object.fromEntries(Object.entries(add).map(([c, q]) => [c, increment(q)])) }, { merge: true });
+
+/** "Comprei": the bought copies join the collection and leave the wishlist, in one write. */
+export const buyWished = (uid: string, bought: Record<string, number>) =>
+  setDoc(userDoc(uid), {
+    cards: Object.fromEntries(Object.entries(bought).map(([c, q]) => [c, increment(q)])),
+    wish: Object.fromEntries(Object.keys(bought).map((c) => [c, deleteField()])),
+  }, { merge: true });
+
+/**
+ * Saves (or, with null, deletes) one deck. mergeFields replaces the whole deck: a plain merge would keep cards
+ * that were taken out of it.
+ */
+export const saveDeck = (uid: string, id: string, deck: Deck | null) =>
+  deck
+    ? setDoc(userDoc(uid), { decks: { [id]: deck } }, { mergeFields: [`decks.${id}`] })
+    : setDoc(userDoc(uid), { decks: { [id]: deleteField() } }, { merge: true });
 
 /** Saves the price the player noted from Liga for one card. */
 export const savePrice = (uid: string, code: string, price: Price) =>

@@ -102,8 +102,16 @@ export const ligaUrl = (code: string) =>
 export const SHOW_IMAGES = import.meta.env?.VITE_CARD_IMAGES !== 'off';
 export const imageUrl = (code: string) => `https://optcgapi.com/media/static/Card_Images/${code}.jpg`;
 
-/** n = name, c = colour(s) e.g. "Red Purple", r = rarity, t = type, s = set name. Built by scripts/build-catalog.mjs. */
-export type CardInfo = { n: string; c: string; r: string; t: string; s: string };
+/**
+ * Built by scripts/build-catalog.mjs. n name, c colour(s) e.g. "Red Purple", r rarity, t type, s set name,
+ * k cost, p power, ct counter, l life (leaders), a attribute, tr traits ("Straw Hat Crew"…),
+ * u = any number of copies allowed in a deck, lr = what a leader forbids in its deck.
+ */
+export type CardInfo = {
+  n: string; c: string; r: string; t: string; s: string;
+  k?: number; p?: number; ct?: number; l?: number; a?: string; tr?: string[];
+  u?: 1; lr?: { maxCost?: number; eventMaxCost?: number };
+};
 export type Catalog = Record<string, CardInfo>;
 
 let catalog: Promise<Catalog> | undefined;
@@ -114,4 +122,10 @@ const COLOR_PT: Record<string, string> = {
   Red: 'Vermelho', Green: 'Verde', Blue: 'Azul', Purple: 'Roxo', Black: 'Preto', Yellow: 'Amarelo',
 };
 export const colorsPt = (c = '') => c.split(' ').map((x) => COLOR_PT[x] ?? x).join(' e ');
+export const COLORS = Object.keys(COLOR_PT);
+export const colorPt = (c: string) => COLOR_PT[c] ?? c;
+export const TYPE_PT: Record<string, string> = { Leader: 'Líder', Character: 'Personagem', Event: 'Evento', Stage: 'Palco' };
+export const RARITIES = ['C', 'UC', 'R', 'SR', 'SEC', 'L', 'PR', 'TR', 'P']; // display order
+/** A card's colours as a list ("Red Purple" → ["Red", "Purple"]). */
+export const colorsOf = (info?: CardInfo) => (info?.c ?? '').split(' ').filter(Boolean);
 export const colorKeys = (c = '') => c.split(' ').filter((x) => x in COLOR_PT).map((x) => x.toLowerCase());

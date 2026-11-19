@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   onUserChange, signIn, signUp, signInWithGoogle, redirectLoginResult, setRemember, resetPassword, logOut, deleteAccount,
-  watchCollection, changeQuantity, savePrice, type User, type Collection, type Price, type Prices,
+  watchPlayer, changeQuantity, savePrice, saveDeck, addToWish, buyWished, type User, type Collection, type Price, type Prices,
   loadLearned, saveLearned, clearLearned, type Learned,
   EXAMPLES_PER_CARD, TEACHER_UID, loadSharedLearned, saveSharedLearned, loadAllSharedLearned, clearSharedLearned,
 } from './backend';
@@ -9,8 +9,14 @@ import {
   normalizeCode, ligaUrl, imageUrl, SHOW_IMAGES, setOf, loadCatalog, colorsPt, colorKeys, type Catalog,
 } from './cards';
 import Scanner, { exampleOf } from './Scanner';
+import { CardArt, CardFace, PRICE_FIELDS, brl, daysSince, ageLabel, markPending, readPending, clearPending, PriceSheet } from './ui';
 import { preloadOcr } from './ocr';
-import { SearchIcon, ScanIcon, ShelfIcon, UserIcon, PlusIcon, MinusIcon, CloseIcon, ExternalIcon } from './icons';
+import { ScanIcon, ShelfIcon, UserIcon, PlusIcon, MinusIcon, CloseIcon, ExternalIcon, WishIcon, DecksIcon } from './icons';
+import WishlistScreen from './Wishlist';
+import DecksScreen from './Decks';
+import type { Decks } from './deck';
+import { FilterBar, NO_FILTERS, matches, type Filters } from './Filters';
+import { getTheme, setTheme, type ThemeChoice } from './theme';
 
 // Phones (iOS especially) keep the page height when the keyboard opens and simply cover the bottom of the
 // screen. Track the area that is still visible so bottom sheets sit right above the keyboard.
@@ -88,7 +94,7 @@ function LoginScreen() {
 // ---------- Logged-in shell ----------
 
 function Shell({ user }: { user: User }) {
-  const [tab, setTab] = useState<'colecao' | 'conta'>('colecao');
+  const [tab, setTab] = useState<Tab>('colecao');
   const [adding, setAdding] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [learned, setLearned] = useState<Learned>({}); // what the player taught the scanner (loaded once)
@@ -107,9 +113,11 @@ function Shell({ user }: { user: User }) {
     return () => clearTimeout(t);
   }, [message]);
   const [prices, setPrices] = useState<Prices>({});
+  const [wish, setWish] = useState<Collection>({});
+  const [decks, setDecks] = useState<Decks>({});
   const [pricing, setPricing] = useState<string | null>(null); // card whose Liga price is being noted
 
-  useEffect(() => watchCollection(user.uid, (c, p) => { setCards(c); setPrices(p); }), [user.uid]);
+  useEffect(() => watchPlayer(user.uid, (d) => { setCards(d.cards); setPrices(d.prices); setWish(d.wish); setDecks(d.decks); }), [user.uid]);
   useEffect(() => {
     if ((!scanning && tab !== 'conta') || learnedLoaded.current) return;
     learnedLoaded.current = true;
@@ -165,8 +173,12 @@ function Shell({ user }: { user: User }) {
     return () => document.removeEventListener('visibilitychange', check);
   }, []);
 
+  const fail = (e: unknown) => setMessage(friendlyError(e));
+  // a noted price stays while the card is in the collection or the wishlist
   const change = (code: string, delta: number) =>
-    changeQuantity(user.uid, code, delta, cards[code] ?? 0).catch((e) => setMessage(friendlyError(e)));
+    changeQuantity(user.uid, code, delta, cards[code] ?? 0, (wish[code] ?? 0) > 0).catch(fail);
+  const changeWish = (code: string, delta: number) =>
+    changeQuantity(user.uid, code, delta, wish[code] ?? 0, (cards[code] ?? 0) > 0, 'wish').catch(fail);
 
   const codes = Object.keys(cards);
   const total = codes.reduce((sum, c) => sum + cards[c], 0);
@@ -176,6 +188,13 @@ function Shell({ user }: { user: User }) {
       {tab === 'colecao' ? (
         <CollectionScreen cards={cards} prices={prices} catalog={catalog} focus={focus} setFocus={setFocus}
           change={change} total={total} onAdd={() => setAdding(true)} onPrice={setPricing} />
+      ) : tab === 'desejos' ? (
+        <WishlistScreen wish={wish} owned={cards} prices={prices} catalog={catalog} change={changeWish} onPrice={setPricing}
+          onBought={(b) => buyWished(user.uid, b).then(() => setMessage('Pronto! As cartas foram para a sua coleção.'), fail)} />
+      ) : tab === 'decks' ? (
+        <DecksScreen decks={decks} owned={cards} wish={wish} catalog={catalog} notify={setMessage}
+          save={(id, d) => saveDeck(user.uid, id, d).catch(fail)}
+          addWish={(add) => addToWish(user.uid, add).catch(fail)} />
       ) : (
         <AccountScreen user={user} different={codes.length} total={total} onError={setMessage} teacher={teacher}
           learnedCount={teacher ? sharedCount : Object.keys(learned).length}
@@ -197,8 +216,14 @@ function Shell({ user }: { user: User }) {
         <button className={tab === 'colecao' ? 'on' : ''} onClick={() => setTab('colecao')} aria-current={tab === 'colecao' ? 'page' : undefined}>
           <ShelfIcon /><span>Coleção</span>
         </button>
+        <button className={tab === 'desejos' ? 'on' : ''} onClick={() => setTab('desejos')} aria-current={tab === 'desejos' ? 'page' : undefined}>
+          <WishIcon /><span>Desejos</span>
+        </button>
         <button className="scan" onClick={() => setScanning(true)} aria-label="Escanear carta">
           <ScanIcon />
+        </button>
+        <button className={tab === 'decks' ? 'on' : ''} onClick={() => setTab('decks')} aria-current={tab === 'decks' ? 'page' : undefined}>
+          <DecksIcon /><span>Decks</span>
         </button>
         <button className={tab === 'conta' ? 'on' : ''} onClick={() => setTab('conta')} aria-current={tab === 'conta' ? 'page' : undefined}>
           <UserIcon /><span>Conta</span>
@@ -241,8 +266,10 @@ type ScreenProps = {
   change: (code: string, delta: number) => void; total: number; onAdd: () => void; onPrice: (code: string) => void;
 };
 
+type Tab = 'colecao' | 'desejos' | 'decks' | 'conta';
+
 function CollectionScreen({ cards, prices, catalog, focus, setFocus, change, total, onAdd, onPrice }: ScreenProps) {
-  const [query, setQuery] = useState('');
+  const [filters, setFilters] = useState<Filters>(NO_FILTERS);
   const codes = Object.keys(cards).sort();
 
   // How many cards each set has in the catalog, for real completion figures.
@@ -252,16 +279,14 @@ function CollectionScreen({ cards, prices, catalog, focus, setFocus, change, tot
     return sizes;
   }, [catalog]);
 
-  const q = query.trim().toLowerCase();
+  // filtering keeps the set rows; a row with nothing left disappears
+  const filtering = filters !== NO_FILTERS && JSON.stringify(filters) !== JSON.stringify(NO_FILTERS);
   const rows = useMemo(() => {
-    if (q) {
-      const hits = codes.filter((c) => c.toLowerCase().includes(q) || catalog[c]?.n.toLowerCase().includes(q));
-      return [{ set: '', title: `Resultados para “${query.trim()}”`, codes: hits }];
-    }
     const bySet = new Map<string, string[]>();
-    for (const c of codes) bySet.set(setOf(c), [...(bySet.get(setOf(c)) ?? []), c]);
+    for (const c of codes) if (!filtering || matches(c, catalog, filters)) bySet.set(setOf(c), [...(bySet.get(setOf(c)) ?? []), c]);
     return [...bySet].map(([set, list]) => ({ set, title: set, codes: list }));
-  }, [codes.join(), q, catalog]);
+  }, [codes.join(), filters, catalog]);
+  const shown = rows.reduce((n, r) => n + r.codes.length, 0);
 
   const focusedRow = rows.findIndex((r) => focus && r.codes.includes(focus));
 
@@ -275,12 +300,9 @@ function CollectionScreen({ cards, prices, catalog, focus, setFocus, change, tot
       </header>
 
       {codes.length > 0 && (
-        <label className="search">
-          <SearchIcon />
-          <input type="search" placeholder="Buscar por código ou nome" value={query}
-            onChange={(e) => { setQuery(e.target.value); setFocus(null); }} aria-label="Buscar na coleção" />
-        </label>
+        <FilterBar value={filters} onChange={(f) => { setFilters(f); setFocus(null); }} pool={codes} catalog={catalog} />
       )}
+      {filtering && <p className="hint pad">{shown ? `${shown} ${shown === 1 ? 'carta' : 'cartas'} encontradas` : 'Nenhuma carta da sua coleção passa nesses filtros.'}</p>}
 
       {codes.length === 0 && (
         <section className="empty">
@@ -297,9 +319,9 @@ function CollectionScreen({ cards, prices, catalog, focus, setFocus, change, tot
               {row.title}
               {row.set && catalog[row.codes[0]] && <span className="set-name"> · {catalog[row.codes[0]].s}</span>}
             </h2>
-            {row.set && setSizes[row.set] ? (
+            {row.set && setSizes[row.set] && !filtering ? (
               <span className="completion">{row.codes.length} de {setSizes[row.set]}</span>
-            ) : null}
+            ) : filtering ? <span className="completion">{row.codes.length}</span> : null}
           </div>
           {row.codes.length === 0 ? (
             <p className="no-results">Nenhuma carta da sua coleção corresponde à busca.</p>
@@ -331,8 +353,7 @@ function Tile({ code, qty, info, price, focused, onToggle, change, onPrice }: {
     <li ref={ref} className={`tile${focused ? ' focus' : ''}`}>
       <button className="tile-art" onClick={onToggle} aria-expanded={focused}
         aria-label={`${info?.n ?? code}, ${qty} ${qty === 1 ? 'cópia' : 'cópias'}`}>
-        <CardArt code={code} info={info} />
-        {!focused && qty > 1 && <span className="qty-badge">×{qty}</span>}
+        <CardFace code={code} info={info} count={focused ? undefined : qty} />
       </button>
       {focused && (
         <div className="tile-info">
@@ -374,20 +395,6 @@ function Tile({ code, qty, info, price, focused, onToggle, change, onPrice }: {
         </div>
       )}
     </li>
-  );
-}
-
-/** Card image, or — when images are switched off or fail — a block in the card's own colours. */
-function CardArt({ code, info }: { code: string; info?: Catalog[string] }) {
-  const [failed, setFailed] = useState(false);
-  if (SHOW_IMAGES && !failed)
-    return <img className="art" src={imageUrl(code)} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)} />;
-  const [c1 = 'none', c2 = c1] = colorKeys(info?.c);
-  return (
-    <span className={`art block c1-${c1} c2-${c2}`}>
-      <span className="block-code">{code}</span>
-      {info && <span className="block-name">{info.n}</span>}
-    </span>
   );
 }
 
@@ -450,84 +457,6 @@ function AddSheet({ catalog, owned, initial = '', onAdd, onClose }: {
   );
 }
 
-// ---------- Prices the player notes from Liga (typed by hand; Liga can't be read automatically) ----------
-
-const PRICE_FIELDS = [['min', 'Menor'], ['avg', 'Médio'], ['max', 'Maior']] as const;
-const brl = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-/** "1.450,00" / "R$ 145" / "145.5" → number, or undefined when empty/invalid. */
-function parseBrl(s: string): number | undefined {
-  let t = s.replace(/[R$\s]/g, '');
-  if (!t) return undefined;
-  if (t.includes(',') || /^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '').replace(',', '.'); // "1.450" = 1450
-  const n = Number(t);
-  return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : undefined;
-}
-const daysSince = (at: number) => Math.floor((Date.now() - at) / 86_400_000);
-function ageLabel(at: number) {
-  const d = daysSince(at);
-  return d <= 0 ? 'hoje' : d === 1 ? 'ontem' : `há ${d} dias`;
-}
-
-// Remembers which card's Liga page was opened, for up to 1 hour, so the price sheet can appear on return.
-const PENDING_KEY = 'pendingPriceCheck';
-function markPending(code: string) {
-  try { localStorage.setItem(PENDING_KEY, JSON.stringify({ code, at: Date.now() })); } catch { /* storage blocked */ }
-}
-function readPending(): string | null {
-  try {
-    const p = JSON.parse(localStorage.getItem(PENDING_KEY) ?? 'null');
-    return p && Date.now() - p.at < 3_600_000 ? p.code : null;
-  } catch { return null; }
-}
-function clearPending() {
-  try { localStorage.removeItem(PENDING_KEY); } catch { /* storage blocked */ }
-}
-
-function PriceSheet({ code, info, current, onSave, onClose }: {
-  code: string; info?: Catalog[string]; current?: Price; onSave: (p: Price) => void; onClose: () => void;
-}) {
-  const initial = (k: 'min' | 'avg' | 'max') => (current?.[k] != null ? current[k]!.toFixed(2).replace('.', ',') : '');
-  const [values, setValues] = useState({ min: initial('min'), avg: initial('avg'), max: initial('max') });
-  const parsed = { min: parseBrl(values.min), avg: parseBrl(values.avg), max: parseBrl(values.max) };
-  const valid = Object.values(parsed).some((v) => v != null);
-
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    if (!valid) return;
-    const price: Price = { at: Date.now() };
-    for (const [k] of PRICE_FIELDS) if (parsed[k] != null) price[k] = parsed[k];
-    onSave(price);
-  };
-
-  return (
-    <div className="sheet-backdrop" onClick={onClose}>
-      <section className="sheet" role="dialog" aria-modal="true" aria-labelledby="price-title" onClick={(e) => e.stopPropagation()}>
-        <div className="sheet-head">
-          <h2 id="price-title">Preço na Liga: {info?.n ?? code}</h2>
-          <button className="icon-btn" onClick={onClose} aria-label="Fechar"><CloseIcon /></button>
-        </div>
-        <p className="hint">
-          Copie os valores que você viu na Liga. Preencha só os que quiser.
-          {current && ` Última anotação: ${ageLabel(current.at)}.`}
-        </p>
-        <form onSubmit={submit} className="add-form">
-          <div className="price-fields">
-            {PRICE_FIELDS.map(([k, label]) => (
-              <label key={k} className="field">
-                <span>{label} (R$)</span>
-                <input inputMode="decimal" placeholder="0,00" value={values[k]} autoComplete="off"
-                  onChange={(e) => setValues({ ...values, [k]: e.target.value })} />
-              </label>
-            ))}
-          </div>
-          <button type="submit" className="btn primary" disabled={!valid}>Salvar preço</button>
-          <button type="button" className="link" onClick={onClose}>Agora não</button>
-        </form>
-      </section>
-    </div>
-  );
-}
-
 // ---------- Account ----------
 
 function AccountScreen({ user, different, total, onError, onForget, learnedCount, teacher }: {
@@ -547,6 +476,7 @@ function AccountScreen({ user, different, total, onError, onForget, learnedCount
         <div><dt>Cartas diferentes</dt><dd>{different}</dd></div>
         <div><dt>Cópias no total</dt><dd>{total}</dd></div>
       </dl>
+      <ThemePicker />
       <div className="stack">
         <button className="btn" onClick={logOut}>Sair</button>
         <button className="link danger" onClick={remove}>Apagar minha conta e coleção</button>
@@ -569,6 +499,23 @@ function AccountScreen({ user, different, total, onError, onForget, learnedCount
       </section>
       <p className="hint">Preços vêm da Liga One Piece, que abre no navegador. Este app não é afiliado à Liga nem à Bandai.</p>
     </main>
+  );
+}
+
+function ThemePicker() {
+  const [choice, setChoice] = useState<ThemeChoice>(getTheme);
+  const options: [ThemeChoice, string][] = [['auto', 'Automático'], ['light', 'Claro'], ['dark', 'Escuro']];
+  return (
+    <section className="theme-pick">
+      <h2>Aparência</h2>
+      <div className="segmented" role="radiogroup" aria-label="Tema">
+        {options.map(([v, label]) => (
+          <button key={v} role="radio" aria-checked={choice === v} className={choice === v ? 'on' : ''}
+            onClick={() => { setChoice(v); setTheme(v); }}>{label}</button>
+        ))}
+      </div>
+      <p className="hint">Automático segue o modo claro/escuro do celular.</p>
+    </section>
   );
 }
 
