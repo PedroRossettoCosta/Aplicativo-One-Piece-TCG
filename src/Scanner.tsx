@@ -1,9 +1,9 @@
 // Camera scanner: reads the printed card code (bottom-right corner) with on-device OCR.
 // Frames never leave the phone. tesseract.js is loaded only when the scanner opens.
 import { useEffect, useRef, useState } from 'react';
-import { findCode, similarCodes, setOf, type Catalog } from './cards';
+import { findCode, similarCodes, setOf, codesByName, type Catalog } from './cards';
 import { fingerprintsInFrame, chooseByArt, exampleFor } from './fingerprint';
-import { getOcr, readText, setOcrProgress } from './ocr';
+import { getOcr, readText, readName, setOcrProgress } from './ocr';
 import { CloseIcon, PlusIcon } from './icons';
 
 type Props = {
@@ -76,6 +76,7 @@ export default function Scanner({ catalog, owned, renderArt, onAdd, onType, lear
       setStep({ kind: 'searching' });
 
       const canvas = document.createElement('canvas');
+      const nameCanvas = document.createElement('canvas');
       const known = (c: string) => c in catalogRef.current;
       let lastHit = Date.now();
       let recent: (string | null)[] = []; // last 3 reads
@@ -92,8 +93,16 @@ export default function Scanner({ catalog, owned, renderArt, onAdd, onType, lear
         const twice = recent.filter((r) => r === read).length >= 2;
         setStep({ kind: twice ? 'art' : 'confirming', code: read });
         // OCR often gets one digit wrong (006 vs 096): let the artwork decide between look-alike codes
-        const art = await pickByArt(v, frame.current, read, known, learnedRef.current, loadSharedRef.current).catch(() => ({ code: read, sure: false, seen: null }));
+        let art = await pickByArt(v, frame.current, read, known, learnedRef.current, loadSharedRef.current).catch(() => ({ code: read, sure: false, seen: null }));
         if (stopped) break;
+        if (!art.sure) {
+          // the art is not sure: read the card NAME (big letters, much easier than the code) to pick the look-alike
+          grabName(v, frame.current, nameCanvas);
+          const named = codesByName(await readName(nameCanvas), [read, ...similarCodes(read, known, 12)], catalogRef.current);
+          if (stopped) break;
+          if (named.length === 1) art = { ...art, code: named[0], sure: true };
+          else if (named.length > 1 && !named.includes(art.code)) art = { ...art, code: named[0] }; // same name, several versions
+        }
         if (!art.sure && !twice) continue;
 
         recent = [];
@@ -255,6 +264,16 @@ async function pickByArt(
 /** The fingerprint to remember for `code` from a frame the player confirmed. */
 export async function exampleOf(seen: Int8Array[], code: string): Promise<string> {
   return exampleFor(seen, (await loadSetFingerprints(setOf(code)))[code]);
+}
+
+/** Copies the bottom band of the card frame, where the name is printed, as greyscale. */
+function grabName(v: HTMLVideoElement, frameEl: HTMLElement, canvas: HTMLCanvasElement) {
+  const { sx, sy, sw, sh } = videoRect(v, frameEl);
+  const x = sx + sw * 0.1, y = sy + sh * 0.76, w = sw * 0.8, h = Math.min(sh * 0.21, v.videoHeight - y);
+  canvas.width = 700; canvas.height = Math.max(1, Math.round((700 * h) / w));
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+  ctx.filter = 'grayscale(1) contrast(1.3)';
+  ctx.drawImage(v, x, y, w, h, 0, 0, canvas.width, canvas.height);
 }
 
 /** Copies the on-screen code zone (plus a margin) out of the video frame, as high-contrast black on white. */

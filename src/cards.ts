@@ -34,6 +34,43 @@ const LOOKALIKE: Record<string, string> = {
   '0': '8693', '1': '74', '2': '73', '3': '8952', '4': '1', '5': '638', '6': '8509', '7': '12', '8': '06935', '9': '8063',
 };
 
+const letters = (s: string) => s.toLowerCase().replace(/[^a-z]/g, '');
+function editDistance(a: string, b: string) {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+/**
+ * How clearly the card name appears in text read from the bottom of the card (0..1).
+ * Short names must appear exactly as a word; very short ones ("Mr.5") are ignored — too easy to see in noise.
+ */
+export function nameScore(text: string, name: string): number {
+  const t = letters(text), n = letters(name);
+  if (n.length < 4) return 0;
+  if (n.length < 8) return text.toLowerCase().split(/[^a-z.]+/).some((w) => letters(w) === n) || t.includes(n) && new RegExp(`(^|[^a-z])${name.toLowerCase().replace(/[^a-z ]/g, '.?').replace(/ /g, '\\s*')}($|[^a-z])`).test(text.toLowerCase()) ? 1 : 0;
+  let best = 0;
+  for (let i = 0; i <= Math.max(0, t.length - n.length); i++)
+    for (const len of [n.length - 1, n.length, n.length + 1]) best = Math.max(best, 1 - editDistance(t.slice(i, i + len), n) / n.length);
+  return best;
+}
+
+/**
+ * Among look-alike codes, the ones whose name was clearly read on the card (tested on real photos: 0 wrong picks
+ * on the player's photos, 1 in 201 eBay photos). Empty when the name could not be read.
+ */
+export function codesByName(text: string, candidates: string[], catalog: Catalog): string[] {
+  const scored = candidates.map((c) => ({ c, s: nameScore(text, catalog[c]?.n ?? '') }));
+  const top = Math.max(0, ...scored.map((x) => x.s));
+  if (top < 0.85) return [];
+  const name = catalog[scored.find((x) => x.s === top)!.c].n;
+  return candidates.filter((c) => catalog[c]?.n === name);
+}
+
 /** Real codes that differ from `code` by one or two look-alike digits, closest first (for "É uma destas?"). */
 export function similarCodes(code: string, known: (c: string) => boolean, max = 8): string[] {
   const dash = code.indexOf('-');

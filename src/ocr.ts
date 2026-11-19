@@ -18,15 +18,26 @@ export function getOcr(): Promise<Worker> {
         if (/loading|initializ/.test(m.status)) onProgress?.(m.progress);
       },
     });
-    await w.setParameters({ tessedit_char_whitelist: 'OPSTEBRI0123456789-', tessedit_pageseg_mode: PSM.SPARSE_TEXT });
+    await w.setParameters({ tessedit_char_whitelist: CODE_CHARS, tessedit_pageseg_mode: PSM.SPARSE_TEXT });
+    chars = CODE_CHARS;
     return w;
   })().catch((e) => { worker = undefined; throw e; });
   return worker;
 }
 
+const CODE_CHARS = 'OPSTEBRI0123456789-';
+const NAME_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.-' ";
+let chars = CODE_CHARS;
 /** Reads text only (no layout/hOCR/TSV output, which tesseract would otherwise also build). */
-export const readText = async (img: HTMLCanvasElement) =>
-  (await (await getOcr()).recognize(img, {}, { text: true, blocks: false, hocr: false, tsv: false })).data.text ?? '';
+async function read(img: HTMLCanvasElement, want: string) {
+  const w = await getOcr();
+  if (chars !== want) { await w.setParameters({ tessedit_char_whitelist: want }); chars = want; }
+  return (await w.recognize(img, {}, { text: true, blocks: false, hocr: false, tsv: false })).data.text ?? '';
+}
+/** The printed card code (letters/digits of codes only). */
+export const readText = (img: HTMLCanvasElement) => read(img, CODE_CHARS);
+/** The card name (letters only). */
+export const readName = (img: HTMLCanvasElement) => read(img, NAME_CHARS);
 
 /**
  * Warm the reader up in the background — only for players who already used the scanner, so nobody
