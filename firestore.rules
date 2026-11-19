@@ -4,9 +4,14 @@ rules_version = '2';
 // Each player has:
 //   users/{uid}                 = { cards: { "OP17-088": 2, ... }, prices: { "OP17-088": { min, avg, max, at }, ... } }
 //   users/{uid}/private/learned = { ex: { "OP17-096": ["<fingerprint>", ...] } }   what they taught the scanner
-// and only that player can read or change them. Everything else is denied.
+// and only that player can read or change them.
+// learned/{set} = the shared base taught by the teacher account (TEACHER_UID in src/backend.ts):
+// every signed-in player can read it, only the teacher can change it. Everything else is denied.
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isTeacher() {
+      return request.auth != null && request.auth.uid == 'CEDVsWBICxWmAPjp7PPb1TaR2fh2';
+    }
     match /users/{uid} {
       allow read, delete: if request.auth != null && request.auth.uid == uid;
       allow create, update: if request.auth != null && request.auth.uid == uid
@@ -22,6 +27,14 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['ex'])
         && request.resource.data.ex is map
         && request.resource.data.ex.size() <= 1500;
+    }
+    match /learned/{set} {
+      allow read: if request.auth != null;
+      allow delete: if isTeacher();
+      allow create, update: if isTeacher()
+        && request.resource.data.keys().hasOnly(['ex'])
+        && request.resource.data.ex is map
+        && request.resource.data.ex.size() <= 500;
     }
   }
 }

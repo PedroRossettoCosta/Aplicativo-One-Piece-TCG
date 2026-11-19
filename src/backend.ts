@@ -8,6 +8,7 @@ import {
 } from 'firebase/auth';
 import {
   initializeFirestore, persistentLocalCache, doc, onSnapshot, setDoc, deleteDoc, increment, deleteField, getDoc,
+  getDocs, collection,
 } from 'firebase/firestore';
 
 const app = initializeApp({
@@ -83,6 +84,24 @@ export const loadLearned = async (uid: string): Promise<Learned> =>
 export const saveLearned = (uid: string, code: string, examples: string[]) =>
   setDoc(learnedDoc(uid), { ex: { [code]: examples } }, { merge: true });
 export const clearLearned = (uid: string) => deleteDoc(learnedDoc(uid));
+
+/**
+ * The "teacher" account: its confirmations and corrections become the shared base every player's scanner
+ * starts from, and it learns only from itself. Must match the uid in firestore.rules.
+ * The shared base lives in learned/{set} (one doc per set keeps each far below Firestore's 1 MB limit).
+ */
+export const TEACHER_UID = 'CEDVsWBICxWmAPjp7PPb1TaR2fh2';
+const sharedDoc = (set: string) => doc(db, 'learned', set);
+export const loadSharedLearned = async (set: string): Promise<Learned> =>
+  (await getDoc(sharedDoc(set)).catch(() => null))?.data()?.ex ?? {};
+export const saveSharedLearned = (set: string, code: string, examples: string[]) =>
+  setDoc(sharedDoc(set), { ex: { [code]: examples } }, { merge: true });
+/** The whole shared base, by set (teacher's account screen). */
+export const loadAllSharedLearned = async (): Promise<Record<string, Learned>> =>
+  Object.fromEntries((await getDocs(collection(db, 'learned'))).docs.map((d) => [d.id, d.data().ex ?? {}]));
+export async function clearSharedLearned() {
+  await Promise.all((await getDocs(collection(db, 'learned'))).docs.map((d) => deleteDoc(d.ref)));
+}
 
 /** LGPD: permanently deletes the player's collection, what they taught the scanner, and the account. */
 export async function deleteAccount(user: User) {

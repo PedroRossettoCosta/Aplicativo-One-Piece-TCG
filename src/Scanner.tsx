@@ -13,6 +13,7 @@ type Props = {
   onAdd: (code: string) => void;
   onType: (prefix?: string, seen?: Int8Array[], detected?: string) => void; // fall back to typing the code (optionally pre-filled, e.g. "OP17-")
   learned: Record<string, string[]>; // what the player taught the scanner (code → fingerprints)
+  loadShared: (set: string) => Promise<Record<string, string[]>>; // the teacher account's shared examples for a set
   onLearn: (code: string, seen: Int8Array[], correctedFrom?: string) => void; // the player confirmed `code` for this frame
   onClose: () => void;
 };
@@ -24,7 +25,7 @@ type Step =
   | { kind: 'confirming'; code: string }   // read once, waiting for a second matching read
   | { kind: 'art'; code: string };         // comparing the artwork with look-alike codes
 
-export default function Scanner({ catalog, owned, renderArt, onAdd, onType, learned, onLearn, onClose }: Props) {
+export default function Scanner({ catalog, owned, renderArt, onAdd, onType, learned, loadShared, onLearn, onClose }: Props) {
   const video = useRef<HTMLVideoElement>(null);
   const zone = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLDivElement>(null);
@@ -39,6 +40,8 @@ export default function Scanner({ catalog, owned, renderArt, onAdd, onType, lear
   catalogRef.current = catalog;
   const learnedRef = useRef(learned);
   learnedRef.current = learned;
+  const loadSharedRef = useRef(loadShared);
+  loadSharedRef.current = loadShared;
   const seenRef = useRef<Int8Array[] | null>(null); // the card as seen when the result was shown
   const detectedRef = useRef<string | null>(null); // what the scanner itself said, before any correction
 
@@ -89,7 +92,7 @@ export default function Scanner({ catalog, owned, renderArt, onAdd, onType, lear
         const twice = recent.filter((r) => r === read).length >= 2;
         setStep({ kind: twice ? 'art' : 'confirming', code: read });
         // OCR often gets one digit wrong (006 vs 096): let the artwork decide between look-alike codes
-        const art = await pickByArt(v, frame.current, read, known, learnedRef.current).catch(() => ({ code: read, sure: false, seen: null }));
+        const art = await pickByArt(v, frame.current, read, known, learnedRef.current, loadSharedRef.current).catch(() => ({ code: read, sure: false, seen: null }));
         if (stopped) break;
         if (!art.sure && !twice) continue;
 
@@ -227,12 +230,19 @@ const loadSetFingerprints = (set: string) => {
  * Compares the card in the frame with the OCR code and its look-alikes (one or two digits off)
  * and returns the code whose artwork matches clearly better; otherwise keeps the OCR code.
  */
-async function pickByArt(v: HTMLVideoElement, frameEl: HTMLElement, code: string, known: (c: string) => boolean, learned: Record<string, string[]>) {
+async function pickByArt(
+  v: HTMLVideoElement, frameEl: HTMLElement, code: string, known: (c: string) => boolean,
+  learned: Record<string, string[]>, loadShared: (set: string) => Promise<Record<string, string[]>>,
+) {
   const candidates = [code, ...similarCodes(code, known, 12)];
-  const official: Record<string, string> = Object.assign({}, ...(await Promise.all([...new Set(candidates.map(setOf))].map(loadSetFingerprints))));
-  // every candidate is compared with its official art AND with what the player taught for that card
+  const sets = [...new Set(candidates.map(setOf))];
+  const [official, shared]: Record<string, string | string[]>[] = await Promise.all([
+    Promise.all(sets.map(loadSetFingerprints)).then((l) => Object.assign({}, ...l)),
+    Promise.all(sets.map(loadShared)).then((l) => Object.assign({}, ...l)),
+  ]);
+  // every candidate is compared with its official art, the teacher's shared examples and the player's own
   const fps: Record<string, string[]> = {};
-  for (const c of candidates) fps[c] = [...(official[c] ? [official[c]] : []), ...(learned[c] ?? [])];
+  for (const c of candidates) fps[c] = [official[c] ?? [], shared[c] ?? [], learned[c] ?? []].flat();
   const { sx, sy, sw, sh } = videoRect(v, frameEl);
   const c = document.createElement('canvas');
   c.width = 250; c.height = Math.round((250 * sh) / sw);

@@ -3,6 +3,7 @@ import {
   onUserChange, signIn, signUp, signInWithGoogle, redirectLoginResult, setRemember, resetPassword, logOut, deleteAccount,
   watchCollection, changeQuantity, savePrice, type User, type Collection, type Price, type Prices,
   loadLearned, saveLearned, clearLearned, type Learned,
+  TEACHER_UID, loadSharedLearned, saveSharedLearned, loadAllSharedLearned, clearSharedLearned,
 } from './backend';
 import {
   normalizeCode, ligaUrl, imageUrl, SHOW_IMAGES, setOf, loadCatalog, colorsPt, colorKeys, type Catalog,
@@ -102,10 +103,35 @@ function Shell({ user }: { user: User }) {
     loadLearned(user.uid).then(setLearned);
   }, [scanning, tab, user.uid]);
 
+  // The teacher account's examples, shared by everyone; loaded per set when the scanner needs them.
+  const teacher = user.uid === TEACHER_UID;
+  const sharedCache = useRef(new Map<string, Promise<Learned>>());
+  const loadShared = (set: string) => {
+    let p = sharedCache.current.get(set);
+    if (!p) { p = loadSharedLearned(set); sharedCache.current.set(set, p); }
+    return p;
+  };
+  const [sharedCount, setSharedCount] = useState(0); // teacher's account screen: cards in the shared base
+  useEffect(() => {
+    if (!teacher || tab !== 'conta') return;
+    loadAllSharedLearned().then((all) => {
+      for (const [set, ex] of Object.entries(all)) sharedCache.current.set(set, Promise.resolve(ex));
+      setSharedCount(Object.values(all).reduce((n, ex) => n + Object.keys(ex).length, 0));
+    }, () => {});
+  }, [teacher, tab]);
+
   /** Remember how `code` looks in this player's camera (newest 4 examples per card). */
   const learn = async (code: string, seen: Int8Array[], correctedFrom?: string) => {
-    if (correctedFrom) setMessage(`Anotado! O scanner vai lembrar como a ${code} aparece na sua câmera. Ele aprendeu a aparência dessa carta — não uma troca de números —, então a ${correctedFrom} de verdade continua sendo reconhecida normalmente.`);
+    if (correctedFrom) setMessage(`Anotado! O scanner vai lembrar como a ${code} aparece na câmera${teacher ? ', e isso vale para todos os jogadores' : ''}. Ele aprendeu a aparência dessa carta — não uma troca de números —, então a ${correctedFrom} de verdade continua sendo reconhecida normalmente.`);
     const example = await exampleOf(seen, code);
+    if (teacher) {
+      // the teacher teaches everyone: straight into the shared base (the cached copy too, so it applies now)
+      const set = setOf(code), base = await loadShared(set);
+      const list = [example, ...(base[code] ?? [])].slice(0, 4);
+      base[code] = list;
+      saveSharedLearned(set, code, list).catch((e) => setMessage(friendlyError(e)));
+      return;
+    }
     setLearned((prev) => {
       const list = [example, ...(prev[code] ?? [])].slice(0, 4);
       saveLearned(user.uid, code, list).catch((e) => setMessage(friendlyError(e)));
@@ -138,8 +164,14 @@ function Shell({ user }: { user: User }) {
         <CollectionScreen cards={cards} prices={prices} catalog={catalog} focus={focus} setFocus={setFocus}
           change={change} total={total} onAdd={() => setAdding(true)} onPrice={setPricing} />
       ) : (
-        <AccountScreen user={user} different={codes.length} total={total} onError={setMessage} learnedCount={Object.keys(learned).length}
-          onForget={() => { clearLearned(user.uid).then(() => { setLearned({}); learnedLoaded.current = true; setMessage('O scanner esqueceu o que aprendeu.'); }, (e) => setMessage(friendlyError(e))); }} />
+        <AccountScreen user={user} different={codes.length} total={total} onError={setMessage} teacher={teacher}
+          learnedCount={teacher ? sharedCount : Object.keys(learned).length}
+          onForget={() => {
+            const done = () => setMessage(teacher ? 'A base compartilhada foi apagada.' : 'O scanner esqueceu o que aprendeu.');
+            const fail = (e: unknown) => setMessage(friendlyError(e));
+            if (teacher) clearSharedLearned().then(() => { sharedCache.current.clear(); setSharedCount(0); done(); }, fail);
+            else clearLearned(user.uid).then(() => { setLearned({}); learnedLoaded.current = true; done(); }, fail);
+          }} />
       )}
       {message && (
         <div className="toast" role="status">
@@ -165,7 +197,7 @@ function Shell({ user }: { user: User }) {
           renderArt={(code) => <CardArt code={code} info={catalog[code]} />}
           onAdd={(code) => { change(code, 1); setTab('colecao'); setFocus(code); }}
           onType={(prefix, seen, detected) => { pendingSeen.current = seen ?? null; pendingDetected.current = detected; setScanning(false); setTypePrefix(prefix ?? ''); setAdding(true); }}
-          learned={learned} onLearn={learn}
+          learned={learned} loadShared={loadShared} onLearn={learn}
           onClose={() => setScanning(false)} />
       )}
 
@@ -485,8 +517,8 @@ function PriceSheet({ code, info, current, onSave, onClose }: {
 
 // ---------- Account ----------
 
-function AccountScreen({ user, different, total, onError, onForget, learnedCount }: {
-  user: User; different: number; total: number; onError: (m: string) => void; onForget: () => void; learnedCount: number;
+function AccountScreen({ user, different, total, onError, onForget, learnedCount, teacher }: {
+  user: User; different: number; total: number; onError: (m: string) => void; onForget: () => void; learnedCount: number; teacher: boolean;
 }) {
   const remove = () => {
     if (confirm('Apagar sua conta e toda a sua coleção? Isso não pode ser desfeito.'))
@@ -510,8 +542,17 @@ function AccountScreen({ user, different, total, onError, onForget, learnedCount
         <h2>Como o scanner aprende</h2>
         <p>Quando você confirma uma carta com <strong>Adicionar</strong>, ou corrige o scanner escolhendo a carta certa em "Não é essa?", ele guarda um pequeno resumo de como aquela carta aparece na sua câmera (cores e formas, não a foto).</p>
         <p>Na próxima vez, ele compara a carta com a imagem oficial <em>e</em> com o que você ensinou. Ele aprende a <strong>aparência</strong> de cada carta, não uma troca de números: ensinar que uma leitura era a 096 não faz a 006 de verdade virar 096, porque as duas têm artes diferentes.</p>
-        <p>Fica salvo na sua conta e vale em todos os seus aparelhos.{learnedCount ? ` Até agora: ${learnedCount} ${learnedCount === 1 ? 'carta aprendida' : 'cartas aprendidas'}.` : ''}</p>
-        <button className="link" onClick={() => { if (confirm('Apagar tudo o que o scanner aprendeu com as suas confirmações e correções?')) onForget(); }}>Apagar o que o scanner aprendeu</button>
+        {teacher ? (
+          <p><strong>Esta é a conta professora:</strong> o que você confirma ou corrige vira a base que o scanner de <em>todos</em> os jogadores usa. Ela aprende só com você; as correções dos outros ficam só na conta de cada um.</p>
+        ) : (
+          <p>Além das suas correções, ele usa uma base de exemplos conferidos pelo criador do app. O que você ensina fica salvo só na sua conta e vale em todos os seus aparelhos.</p>
+        )}
+        {learnedCount > 0 && <p>{teacher ? 'Base compartilhada' : 'Você ensinou'}: {learnedCount} {learnedCount === 1 ? 'carta' : 'cartas'}.</p>}
+        <button className="link" onClick={() => {
+          if (confirm(teacher
+            ? 'Apagar a base compartilhada? Isso afeta o scanner de todos os jogadores e não pode ser desfeito.'
+            : 'Apagar tudo o que o scanner aprendeu com as suas confirmações e correções?')) onForget();
+        }}>{teacher ? 'Apagar a base compartilhada' : 'Apagar o que o scanner aprendeu'}</button>
       </section>
       <p className="hint">Preços vêm da Liga One Piece, que abre no navegador. Este app não é afiliado à Liga nem à Bandai.</p>
     </main>
