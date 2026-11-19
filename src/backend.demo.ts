@@ -47,6 +47,11 @@ export const changeQuantity = (_uid: string, code: string, delta: number, curren
   if (current + delta <= 0) { delete list[code]; if (!keepPrice) delete prices[code]; } else list[code] = (list[code] ?? 0) + delta;
   return commit({ ...data, [field]: list, prices });
 };
+export const collect = (_uid: string, code: string, delta: number, wished: number) => {
+  const cards = { ...data.cards, [code]: (data.cards[code] ?? 0) + delta }, wish = { ...data.wish };
+  if (wished > 0) { if (wished <= delta) delete wish[code]; else wish[code] = wished - delta; }
+  return commit({ ...data, cards, wish });
+};
 export const savePrice = (_uid: string, code: string, price: Price) => commit({ ...data, prices: { ...data.prices, [code]: price } });
 export const addToWish = (_uid: string, add: Record<string, number>) => {
   const wish = { ...data.wish };

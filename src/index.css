@@ -372,7 +372,8 @@ h2 { font-size: 17px; font-weight: 750; letter-spacing: -0.01em; }
 .bubble {
   position: absolute; right: -4px; bottom: -4px; min-width: 26px; height: 26px; padding: 0 7px; border-radius: 13px;
   display: grid; place-items: center; font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums;
-  background: var(--signal); color: var(--signal-ink); box-shadow: 0 2px 6px var(--shadow), 0 0 0 2px var(--ink);
+  background: rgb(215 38 30 / 0.78); color: #fff; box-shadow: 0 2px 6px var(--shadow);
+  -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); /* keeps the number readable over busy art */
 }
 .face.lacking .art { filter: grayscale(1) brightness(0.72); opacity: 0.75; }
 .lack {

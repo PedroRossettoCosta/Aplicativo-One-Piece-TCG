@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   onUserChange, signIn, signUp, signInWithGoogle, redirectLoginResult, setRemember, resetPassword, logOut, deleteAccount,
-  watchPlayer, changeQuantity, savePrice, saveDeck, addToWish, buyWished, type User, type Collection, type Price, type Prices,
+  watchPlayer, changeQuantity, collect, savePrice, saveDeck, addToWish, buyWished, type User, type Collection, type Price, type Prices,
   loadLearned, saveLearned, clearLearned, type Learned,
   EXAMPLES_PER_CARD, TEACHER_UID, loadSharedLearned, saveSharedLearned, loadAllSharedLearned, clearSharedLearned,
 } from './backend';
@@ -175,8 +175,16 @@ function Shell({ user }: { user: User }) {
 
   const fail = (e: unknown) => setMessage(friendlyError(e));
   // a noted price stays while the card is in the collection or the wishlist
-  const change = (code: string, delta: number) =>
-    changeQuantity(user.uid, code, delta, cards[code] ?? 0, (wish[code] ?? 0) > 0).catch(fail);
+  const change = (code: string, delta: number) => {
+    const wished = wish[code] ?? 0;
+    if (delta > 0 && wished > 0) {
+      // a card you wanted just arrived (scanned, typed or +): it leaves the wishlist
+      const left = Math.max(0, wished - delta);
+      setMessage(left ? `${code}: tirei ${delta} da lista de desejos (ainda faltam ${left}).` : `${code} saiu da lista de desejos: você já tem.`);
+      return collect(user.uid, code, delta, wished).catch(fail);
+    }
+    return changeQuantity(user.uid, code, delta, cards[code] ?? 0, wished > 0).catch(fail);
+  };
   const changeWish = (code: string, delta: number) =>
     changeQuantity(user.uid, code, delta, wish[code] ?? 0, (cards[code] ?? 0) > 0, 'wish').catch(fail);
 

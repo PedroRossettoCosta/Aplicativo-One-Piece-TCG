@@ -81,6 +81,16 @@ export const changeQuantity = (uid: string, code: string, delta: number, current
     { merge: true },
   );
 
+/**
+ * New copies join the collection and, if the card was on the wishlist, the same number leaves it (one write).
+ * The noted price stays: the card is still in the collection.
+ */
+export const collect = (uid: string, code: string, delta: number, wished: number) =>
+  setDoc(userDoc(uid), {
+    cards: { [code]: increment(delta) },
+    ...(wished > 0 ? { wish: { [code]: wished <= delta ? deleteField() : increment(-delta) } } : {}),
+  }, { merge: true });
+
 /** Adds copies to the wishlist in one write (e.g. every card a deck is missing). */
 export const addToWish = (uid: string, add: Record<string, number>) =>
   setDoc(userDoc(uid), { wish: Object.fromEntries(Object.entries(add).map(([c, q]) => [c, increment(q)])) }, { merge: true });
