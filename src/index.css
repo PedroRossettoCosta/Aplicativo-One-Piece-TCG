@@ -565,3 +565,8 @@ h2 { font-size: 17px; font-weight: 750; letter-spacing: -0.01em; }
 .name-hits .art { width: 44px; border-radius: 4px; }
 .name-hits .tile-name { display: block; font-size: 15px; }
 .name-hits .tile-meta { display: block; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* photo scanner: the close-up photo being read, behind the panel */
+.photo-preview { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; opacity: 0.85; }
+.photo-shoot { width: 100%; height: 48px; margin-top: 4px; }
+.photo-links { display: flex; gap: 18px; justify-content: center; flex-wrap: wrap; }

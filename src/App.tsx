@@ -9,6 +9,7 @@ import {
   normalizeCode, ligaUrl, imageUrl, SHOW_IMAGES, setOf, loadCatalog, colorsPt, colorKeys, baseOf, byPrint, perCode, type Catalog,
 } from './cards';
 import Scanner, { exampleOf } from './Scanner';
+import PhotoScanner from './PhotoScanner';
 import {
   CardArt, CardFace, CardStepper, PrintPicker, Sheet, PRICE_FIELDS, brl, daysSince, ageLabel, shortAge, markPending, readPending, clearPending, PriceSheet,
   BasisPicker, Toggle, loadPref, storePref, BASIS_KEY, unitPrice, basisLabel, sumPrices, type Basis,
@@ -99,7 +100,9 @@ function LoginScreen() {
 function Shell({ user }: { user: User }) {
   const [tab, setTab] = useState<Tab>('colecao');
   const [adding, setAdding] = useState(false);
-  const [scanning, setScanning] = useState(false);
+  const [scanning, setScanning] = useState<false | 'photo' | 'live'>(false);
+  const photoInput = useRef<HTMLInputElement>(null); // the scan button opens the phone's camera straight away
+  const [photo, setPhoto] = useState<File | undefined>();
   const [learned, setLearned] = useState<Learned>({}); // what the player taught the scanner (loaded once)
   const learnedLoaded = useRef(false);
   const pendingSeen = useRef<Int8Array[] | null>(null); // frame waiting for a typed correction
@@ -230,9 +233,11 @@ function Shell({ user }: { user: User }) {
         <button className={tab === 'desejos' ? 'on' : ''} onClick={() => setTab('desejos')} aria-current={tab === 'desejos' ? 'page' : undefined}>
           <WishIcon filled={tab === 'desejos'} /><span>Desejos</span>
         </button>
-        <button className="scan" onClick={() => setScanning(true)} aria-label="Escanear carta">
+        <button className="scan" onClick={() => photoInput.current?.click()} aria-label="Escanear carta (foto do código)">
           <ScanIcon />
         </button>
+        <input ref={photoInput} type="file" accept="image/*" capture="environment" hidden
+          onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) { setPhoto(f); setScanning('photo'); } }} />
         <button className={tab === 'decks' ? 'on' : ''} onClick={() => setTab('decks')} aria-current={tab === 'decks' ? 'page' : undefined}>
           <DecksIcon filled={tab === 'decks'} /><span>Decks</span>
         </button>
@@ -241,7 +246,16 @@ function Shell({ user }: { user: User }) {
         </button>
       </nav>
 
-      {scanning && (
+      {scanning === 'photo' && (
+        <PhotoScanner catalog={catalog} owned={perCode(cards)} initialFile={photo}
+          renderArt={(code) => <CardArt code={code} info={catalog[code]} />}
+          onAdd={(code) => { change(code, 1); setTab('colecao'); setFocus(code); }}
+          onType={(prefix) => { pendingSeen.current = null; setScanning(false); setTypePrefix(prefix ?? ''); setAdding(true); }}
+          onLive={() => setScanning('live')}
+          onClose={() => { setScanning(false); setPhoto(undefined); }} />
+      )}
+
+      {scanning === 'live' && (
         <Scanner catalog={catalog} owned={perCode(cards)}
           renderArt={(code) => <CardArt code={code} info={catalog[code]} />}
           onAdd={(code) => { change(code, 1); setTab('colecao'); setFocus(code); }}
@@ -401,8 +415,17 @@ function Tile({ code, qty, info, price, unit, marked, focused, onToggle, change,
 }) {
   const ref = useRef<HTMLLIElement>(null);
   const [prints, setPrints] = useState(false);
+  const before = useRef<number | null>(null); // where the row was scrolled before this card slid to the left
   useEffect(() => {
-    if (focused) ref.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' }); // left edge: the info column stays fully visible
+    const rail = ref.current?.parentElement;
+    if (focused) {
+      before.current = rail?.scrollLeft ?? null;
+      ref.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' }); // left edge: the info column stays fully visible
+    } else if (before.current != null && rail) {
+      // closed again: back to where the row was, unless another card of the same row just opened
+      if (!rail.querySelector('.tile.focus')) rail.scrollTo({ left: before.current, behavior: 'smooth' });
+      before.current = null;
+    }
   }, [focused]);
 
   return (
