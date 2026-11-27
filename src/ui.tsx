@@ -8,7 +8,7 @@ import { CloseIcon, PlusIcon, MinusIcon } from './icons';
 export function CardArt({ code, info }: { code: string; info?: Catalog[string] }) {
   const [failed, setFailed] = useState(false);
   if (SHOW_IMAGES && !failed)
-    return <img className="art" src={imageUrl(code)} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)} />;
+    return <img className="art" src={imageUrl(code, info)} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)} />;
   const [c1 = 'none', c2 = c1] = colorKeys(info?.c);
   return (
     <span className={`art block c1-${c1} c2-${c2}`}>
@@ -143,6 +143,8 @@ export function ageLabel(at: number) {
   const d = daysSince(at);
   return d <= 0 ? 'hoje' : d === 1 ? 'ontem' : `há ${d} dias`;
 }
+/** Short age for tight spots: "hoje", "1d", "12d". */
+export const shortAge = (at: number) => { const d = daysSince(at); return d <= 0 ? 'hoje' : `${d}d`; };
 
 // Remembers which card's Liga page was opened, for up to 1 hour, so the price sheet can appear on return.
 const PENDING_KEY = 'pendingPriceCheck';

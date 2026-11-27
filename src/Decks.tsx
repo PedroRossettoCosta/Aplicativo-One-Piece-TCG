@@ -298,7 +298,7 @@ function CardSheet({ code, catalog, inDeck, owned, wished, max, setQty, addWish,
       ) : lack > 0 ? (
         <p className="hint">As {lack} que faltam já estão na lista de desejos.</p>
       ) : null}
-      <a className="liga" href={ligaUrl(code)} target="_blank" rel="noopener noreferrer" onClick={() => markPending(code)}>Ver preço na Liga <ExternalIcon /></a>
+      <a className="liga" href={ligaUrl(code, info)} target="_blank" rel="noopener noreferrer" onClick={() => markPending(code)}>Ver preço na Liga <ExternalIcon /></a>
     </Sheet>
   );
 }

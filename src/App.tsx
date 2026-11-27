@@ -10,7 +10,7 @@ import {
 } from './cards';
 import Scanner, { exampleOf } from './Scanner';
 import {
-  CardArt, CardFace, CardStepper, PrintPicker, Sheet, PRICE_FIELDS, brl, daysSince, ageLabel, markPending, readPending, clearPending, PriceSheet,
+  CardArt, CardFace, CardStepper, PrintPicker, Sheet, PRICE_FIELDS, brl, daysSince, ageLabel, shortAge, markPending, readPending, clearPending, PriceSheet,
   BasisPicker, Toggle, loadPref, storePref, BASIS_KEY, unitPrice, basisLabel, sumPrices, type Basis,
 } from './ui';
 import { preloadOcr } from './ocr';
@@ -402,7 +402,7 @@ function Tile({ code, qty, info, price, unit, marked, focused, onToggle, change,
   const ref = useRef<HTMLLIElement>(null);
   const [prints, setPrints] = useState(false);
   useEffect(() => {
-    if (focused) ref.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    if (focused) ref.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' }); // left edge: the info column stays fully visible
   }, [focused]);
 
   return (
@@ -416,6 +416,7 @@ function Tile({ code, qty, info, price, unit, marked, focused, onToggle, change,
       {!focused && (
         <span className={`tile-price${unit == null ? ' none' : ''}`}>
           {unit == null ? (marked !== undefined ? 'sem preço' : '') : qty > 1 && marked !== undefined ? `${qty} × ${brl(unit)}` : brl(unit)}
+          {unit != null && price && <span className={`tile-age${daysSince(price.at) > 7 ? ' stale' : ''}`} title={`Anotado ${ageLabel(price.at)}`}> · {shortAge(price.at)}</span>}
         </span>
       )}
       {focused && (
@@ -453,7 +454,7 @@ function Tile({ code, qty, info, price, unit, marked, focused, onToggle, change,
           ) : (
             <button className="inline-link" onClick={onPrice}>Anotar preço da Liga</button>
           )}
-          <a className="liga" href={ligaUrl(code)} target="_blank" rel="noopener noreferrer" onClick={() => markPending(code)}>
+          <a className="liga" href={ligaUrl(code, info)} target="_blank" rel="noopener noreferrer" onClick={() => markPending(code)}>
             Ver preço na Liga <ExternalIcon />
           </a>
           {(catalog[baseOf(code)]?.v) && <button className="inline-link" onClick={() => setPrints(true)}>Outras versões desta carta</button>}
@@ -488,6 +489,12 @@ function AddSheet({ catalog, owned, initial = '', onAdd, onClose }: {
   const [print, setPrint] = useState<string | null>(null);
   const chosen = print && code && baseOf(print) === code ? print : code;
   const info = code ? catalog[code] : undefined;
+  // not a code: look the text up by name (the only way to find DON!! cards, which have no printed code)
+  const byName = useMemo(() => {
+    const q = input.trim().toLowerCase().replace(/^don\b!*/, 'don!!');
+    if (code || q.length < 2) return [];
+    return Object.keys(catalog).filter((c) => !catalog[c].b && catalog[c].n.toLowerCase().includes(q)).sort(byPrint).slice(0, 12);
+  }, [input, code, catalog]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -512,7 +519,7 @@ function AddSheet({ catalog, owned, initial = '', onAdd, onClose }: {
         </div>
         <form onSubmit={submit} className="add-form">
           <label className="field">
-            <span>Código impresso na carta</span>
+            <span>Código impresso na carta ou nome</span>
             <input autoFocus placeholder="OP01-120" value={input} onChange={(e) => setInput(e.target.value)}
               autoCapitalize="characters" autoComplete="off" spellCheck={false} />
           </label>
@@ -526,8 +533,19 @@ function AddSheet({ catalog, owned, initial = '', onAdd, onClose }: {
                   {owned[code] ? <p className="tile-meta">Você já tem {owned[code]}</p> : null}
                 </div>
               </>
+            ) : byName.length ? (
+              <ul className="name-hits">
+                {byName.map((c) => (
+                  <li key={c}>
+                    <button type="button" onClick={() => setInput(c)}>
+                      <CardArt code={c} info={catalog[c]} />
+                      <span><span className="tile-name">{catalog[c].n}</span><span className="tile-meta">{c} · {catalog[c].s}</span></span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
             ) : (
-              <p className="hint">{input ? 'Continue digitando: o formato é OP01-120.' : 'O código fica no canto inferior direito da carta.'}</p>
+              <p className="hint">{input ? 'Digite o código (OP01-120) ou o nome da carta, como "DON!! Zoro".' : 'O código fica no canto inferior direito da carta. DON!! não têm código: busque pelo nome.'}</p>
             )}
           </div>
           {code && info && <PrintPicker code={code} catalog={catalog} value={chosen!} onChange={setPrint} />}

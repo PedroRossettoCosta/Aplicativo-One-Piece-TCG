@@ -27,7 +27,7 @@ export const deckCount = (d: Deck) => Object.values(d.cards).reduce((n, q) => n 
 /** Can `code` go in a deck led by `leader`? (colour, type, leader restrictions; not counting copies) */
 export function fitsLeader(code: string, leader: string | undefined, catalog: Catalog): boolean {
   const info = catalog[code];
-  if (!info || info.t === 'Leader') return false;
+  if (!info || info.t === 'Leader' || info.t === 'DON!!') return false;
   if (!leader || !catalog[leader]) return true;
   const L = catalog[leader];
   const allowed = colorsOf(L);

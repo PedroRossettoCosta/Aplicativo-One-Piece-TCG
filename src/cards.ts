@@ -1,5 +1,6 @@
-// Card codes look like OP01-120, ST10-005, EB01-001, PRB01-001 or P-001.
-const CODE = /^(?:(?:OP|ST|EB|PRB)\d{2}-\d{3}|P-\d{3})$/;
+// Card codes look like OP01-120, ST10-005, EB01-001, PRB01-001 or P-001. DON!! cards have no printed code:
+// the catalog numbers them DON-001… (see scripts/add-dons.mjs).
+const CODE = /^(?:(?:OP|ST|EB|PRB)\d{2}-\d{3}|P-\d{3}|DON-\d{3})$/;
 
 /** Cleans user/OCR input ("op01 120" → "OP01-120"). Returns null if it isn't a valid code. */
 export function normalizeCode(input: string): string | null {
@@ -93,15 +94,16 @@ export const setOf = (code: string) => code.split('-')[0];
 
 // TODO: confirm this search URL works on ligaonepiece.com.br (it can't be checked automatically).
 /** Liga lists every print of a card on the card's page, so alternative prints link to their code. */
-export const ligaUrl = (code: string) =>
-  `https://www.ligaonepiece.com.br/?view=cards/search&card=${encodeURIComponent(code.split('_')[0])}`;
+/** DON!! cards have no code, so they are searched by name ("DON!! Zoro (Gold)"). */
+export const ligaUrl = (code: string, info?: CardInfo) =>
+  `https://www.ligaonepiece.com.br/?view=cards/search&card=${encodeURIComponent(info?.t === 'DON!!' ? info.n : code.split('_')[0])}`;
 
 /**
  * Card art = Bandai's "SAMPLE"-watermarked images, mirrored by optcgapi.com (bandai's own server blocks
  * embedding). Kill switch: set VITE_CARD_IMAGES=off in the environment and every card becomes a colour block.
  */
 export const SHOW_IMAGES = import.meta.env?.VITE_CARD_IMAGES !== 'off';
-export const imageUrl = (code: string) => `https://optcgapi.com/media/static/Card_Images/${code}.jpg`;
+export const imageUrl = (code: string, info?: CardInfo) => `https://optcgapi.com/media/static/Card_Images/${info?.img ?? `${code}.jpg`}`;
 
 /**
  * Built by scripts/build-catalog.mjs. n name, c colour(s) e.g. "Red Purple", r rarity, t type, s set name,
@@ -116,6 +118,8 @@ export type CardInfo = {
   v?: Record<string, string>;
   /** set on an alternative print's own entry ("OP01-120_p2"): the normal card's code and the print's label */
   b?: string; vl?: string;
+  /** image file name when it isn't "<code>.jpg" (DON!! cards) */
+  img?: string;
 };
 export type Catalog = Record<string, CardInfo>;
 
@@ -149,8 +153,8 @@ const COLOR_PT: Record<string, string> = {
 export const colorsPt = (c = '') => c.split(' ').map((x) => COLOR_PT[x] ?? x).join(' e ');
 export const COLORS = Object.keys(COLOR_PT);
 export const colorPt = (c: string) => COLOR_PT[c] ?? c;
-export const TYPE_PT: Record<string, string> = { Leader: 'Líder', Character: 'Personagem', Event: 'Evento', Stage: 'Palco' };
-export const RARITIES = ['C', 'UC', 'R', 'SR', 'SEC', 'L', 'PR', 'TR', 'P']; // display order
+export const TYPE_PT: Record<string, string> = { Leader: 'Líder', Character: 'Personagem', Event: 'Evento', Stage: 'Palco', 'DON!!': 'DON!!' };
+export const RARITIES = ['C', 'UC', 'R', 'SR', 'SEC', 'L', 'PR', 'TR', 'P', 'DON!!']; // display order
 /** A card's colours as a list ("Red Purple" → ["Red", "Purple"]). */
 export const colorsOf = (info?: CardInfo) => (info?.c ?? '').split(' ').filter(Boolean);
 export const colorKeys = (c = '') => c.split(' ').filter((x) => x in COLOR_PT).map((x) => x.toLowerCase());

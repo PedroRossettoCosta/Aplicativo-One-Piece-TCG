@@ -89,7 +89,7 @@ export default function WishlistScreen({ wish, owned, prices, catalog, change, o
                         <output aria-live="polite">{wish[code]}</output>
                         <button onClick={() => change(code, 1)} aria-label="Uma cópia a mais"><PlusIcon /></button>
                       </div>
-                      <a className="liga" href={ligaUrl(code)} target="_blank" rel="noopener noreferrer" onClick={() => markPending(code)}>
+                      <a className="liga" href={ligaUrl(code, info)} target="_blank" rel="noopener noreferrer" onClick={() => markPending(code)}>
                         Liga <ExternalIcon />
                       </a>
                     </div>
